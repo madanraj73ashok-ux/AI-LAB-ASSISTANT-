@@ -21,6 +21,26 @@ const userSchema = new mongoose.Schema({
         default: 'student',
         required: true
     },
+    name: {
+        type: String,
+        default: ''
+    },
+    email: {
+        type: String,
+        default: ''
+    },
+    assignedSubjects: [{
+        type: String
+    }],
+    status: {
+        type: String,
+        enum: ['Active', 'Inactive'],
+        default: 'Active'
+    },
+    securityClearance: {
+        type: Boolean,
+        default: true
+    },
     createdAt: {
         type: Date,
         default: Date.now

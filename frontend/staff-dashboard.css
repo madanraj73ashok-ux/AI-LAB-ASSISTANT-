@@ -1973,6 +1973,68 @@ textarea.form-control {
     box-shadow: 0 0 14px rgba(0, 245, 212, 0.5);
 }
 
+.add-schedule-btn-podx {
+    background: linear-gradient(135deg, #00f5d4, #00bb99);
+    border: none;
+    color: #031726;
+    padding: 0.5rem 1.15rem;
+    border-radius: 12px;
+    font-size: 0.84rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    box-shadow: 0 0 16px rgba(0, 245, 212, 0.35);
+}
+
+.add-schedule-btn-podx:hover {
+    transform: translateY(-1.5px);
+    box-shadow: 0 0 22px rgba(0, 245, 212, 0.6);
+}
+
+.delete-schedule-btn-podx {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #fca5a5;
+    padding: 0.45rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-left: 6px;
+}
+
+.delete-schedule-btn-podx:hover {
+    background: #ef4444;
+    color: #ffffff;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+}
+
+.logout-icon-btn-podx {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-left: auto;
+}
+
+.logout-icon-btn-podx:hover {
+    background: rgba(239, 68, 68, 0.3);
+    border-color: #ef4444;
+    color: #fca5a5;
+}
+
 /* ==========================================================================
    Modals & Toast System
    ========================================================================== */
@@ -2389,6 +2451,298 @@ textarea.form-control {
     padding: 0.25rem 0.65rem;
     border-radius: 8px;
     border: 1px solid rgba(0, 245, 212, 0.35);
+}
+
+/* ==========================================================================
+   PHASE 3 HOD PODX ENHANCEMENTS: FACULTY, HARDWARE, SECURITY, TIMELINES, CURRICULUM
+   ========================================================================== */
+.badge-low-stock {
+    background: rgba(239, 68, 68, 0.2);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.5);
+    box-shadow: 0 0 10px rgba(239, 68, 68, 0.25);
+    font-weight: 800;
+    padding: 0.25rem 0.65rem;
+    border-radius: 9999px;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.badge-in-stock {
+    background: rgba(16, 185, 129, 0.18);
+    color: #34d399;
+    border: 1px solid rgba(16, 185, 129, 0.4);
+    font-weight: 800;
+    padding: 0.25rem 0.65rem;
+    border-radius: 9999px;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.badge-overdue {
+    background: rgba(239, 68, 68, 0.22);
+    color: #ff6b6b;
+    border: 1px solid rgba(239, 68, 68, 0.6);
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.35);
+    font-weight: 800;
+    padding: 0.3rem 0.75rem;
+    border-radius: 9999px;
+    font-size: 0.74rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    animation: podxPulseOverdue 2s infinite ease-in-out;
+}
+
+@keyframes podxPulseOverdue {
+    0%, 100% { box-shadow: 0 0 8px rgba(239, 68, 68, 0.3); }
+    50% { box-shadow: 0 0 18px rgba(239, 68, 68, 0.7); }
+}
+
+.tr-overdue td {
+    background: rgba(239, 68, 68, 0.04) !important;
+    border-left: 3px solid #ef4444;
+}
+
+.badge-clearance-granted {
+    background: rgba(0, 245, 212, 0.15);
+    color: #00f5d4;
+    border: 1px solid rgba(0, 245, 212, 0.45);
+    font-weight: 700;
+    padding: 0.25rem 0.7rem;
+    border-radius: 9999px;
+    font-size: 0.74rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.badge-clearance-revoked {
+    background: rgba(239, 68, 68, 0.18);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    font-weight: 700;
+    padding: 0.25rem 0.7rem;
+    border-radius: 9999px;
+    font-size: 0.74rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+
+.security-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1.25rem;
+    margin-bottom: 2rem;
+}
+
+.security-card-item {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 16px;
+    padding: 1.35rem;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    transition: all 0.2s ease;
+}
+
+.security-card-item:hover {
+    border-color: rgba(0, 245, 212, 0.35);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+
+.security-card-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 1rem;
+}
+
+.security-avatar-circle {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #2563eb, #00f5d4);
+    color: #fff;
+    font-weight: 800;
+    font-size: 1.05rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 12px rgba(0, 245, 212, 0.35);
+}
+
+.security-card-info h4 {
+    margin: 0;
+    font-size: 0.98rem;
+    color: #ffffff;
+    font-weight: 700;
+}
+
+.security-card-info span {
+    font-size: 0.76rem;
+    color: var(--podx-text-muted);
+    display: block;
+    margin-top: 2px;
+}
+
+.security-card-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-top: 1rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.toggle-clearance-btn {
+    padding: 0.45rem 1rem;
+    border-radius: 10px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: none;
+}
+
+.toggle-clearance-btn.grant {
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: #ffffff;
+}
+
+.toggle-clearance-btn.revoke {
+    background: rgba(239, 68, 68, 0.18);
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    color: #fca5a5;
+}
+
+.toggle-clearance-btn:hover {
+    filter: brightness(1.15);
+    transform: scale(1.02);
+}
+
+.action-btn-sm {
+    padding: 0.35rem 0.75rem;
+    border-radius: 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+    background: rgba(255, 255, 255, 0.06);
+    color: #e2e8f0;
+}
+
+.action-btn-sm:hover {
+    background: rgba(255, 255, 255, 0.12);
+    color: #ffffff;
+}
+
+.action-btn-sm.primary {
+    background: rgba(0, 245, 212, 0.14);
+    border-color: rgba(0, 245, 212, 0.35);
+    color: #00f5d4;
+}
+
+.action-btn-sm.primary:hover {
+    background: #00f5d4;
+    color: #031726;
+    box-shadow: 0 0 10px rgba(0, 245, 212, 0.4);
+}
+
+.action-btn-sm.warning {
+    background: rgba(245, 158, 11, 0.14);
+    border-color: rgba(245, 158, 11, 0.35);
+    color: #fbbf24;
+}
+
+.action-btn-sm.warning:hover {
+    background: #f59e0b;
+    color: #031726;
+}
+
+.action-btn-sm.danger {
+    background: rgba(239, 68, 68, 0.14);
+    border-color: rgba(239, 68, 68, 0.35);
+    color: #f87171;
+}
+
+.action-btn-sm.danger:hover {
+    background: #ef4444;
+    color: #ffffff;
+}
+
+.component-rows-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    margin: 1rem 0;
+    max-height: 280px;
+    overflow-y: auto;
+    padding-right: 6px;
+}
+
+.component-row-editor {
+    display: grid;
+    grid-template-columns: 2fr 1.5fr 1fr 1fr auto;
+    gap: 8px;
+    align-items: center;
+    background: rgba(255, 255, 255, 0.03);
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.btn-add-row {
+    background: rgba(0, 245, 212, 0.08);
+    border: 1px dashed rgba(0, 245, 212, 0.4);
+    color: #00f5d4;
+    padding: 0.6rem 1rem;
+    border-radius: 8px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    text-align: center;
+    width: 100%;
+    transition: all 0.2s;
+}
+
+.btn-add-row:hover {
+    background: rgba(0, 245, 212, 0.15);
+    border-color: #00f5d4;
+}
+
+.part-tag-code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.2rem 0.5rem;
+    border-radius: 6px;
+    color: #5efce8;
+    border: 1px solid rgba(0, 245, 212, 0.2);
+    display: inline-block;
+}
+
+.exp-used-tag {
+    font-size: 0.72rem;
+    font-weight: 700;
+    background: rgba(37, 99, 235, 0.2);
+    color: #93c5fd;
+    padding: 0.18rem 0.45rem;
+    border-radius: 4px;
+    border: 1px solid rgba(37, 99, 235, 0.4);
+    margin: 2px;
+    display: inline-block;
 }
 
 

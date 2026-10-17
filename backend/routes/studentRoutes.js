@@ -9,7 +9,6 @@ const User = require('../models/User');
 const Experiment = require('../models/Experiment');
 const QuestionSet = require('../models/QuestionSet');
 const ExamAttempt = require('../models/ExamAttempt');
-const StudentGroup = require('../models/StudentGroup');
 const Component = require('../models/Component');
 const ComponentIssue = require('../models/ComponentIssue');
 const LabSession = require('../models/LabSession');
@@ -57,25 +56,20 @@ router.get('/profile', async (req, res) => {
         const student = req.student;
 
         // Aggregate statistics from real MongoDB records
-        const [attempts, passedAttempts, groups, issuedRecords] = await Promise.all([
+        const [attempts, passedAttempts, sessions, issuedRecords] = await Promise.all([
             ExamAttempt.find({ studentUsername: student.username }).lean(),
             ExamAttempt.find({ studentUsername: student.username, passed: true }).lean(),
-            StudentGroup.find({
+            LabSession.find({
                 $or: [
-                    { leaderUsername: student.username },
-                    { 'members.registrationId': student.registrationId || student.username },
-                    { 'members.name': student.username }
+                    { studentUsername: student.username },
+                    { registrationId: student.registrationId || student.username }
                 ]
             }).lean(),
             ComponentIssue.find({
-                groupName: {
-                    $in: (await StudentGroup.find({
-                        $or: [
-                            { leaderUsername: student.username },
-                            { 'members.registrationId': student.registrationId || student.username }
-                        ]
-                    })).map(g => g.groupName)
-                }
+                $or: [
+                    { studentUsername: student.username },
+                    { registrationId: student.registrationId || student.username }
+                ]
             }).lean()
         ]);
 
@@ -106,7 +100,7 @@ router.get('/profile', async (req, res) => {
                     experimentsPassed: uniqueExperimentsPassed,
                     experimentsFailed: failedAttemptsCount,
                     experimentsInProgress: inProgressCount,
-                    teamsRegistered: groups.length,
+                    unlockedPracticals: uniqueExperimentsPassed,
                     componentsIssued: totalComponentsIssued
                 }
             }
@@ -140,37 +134,22 @@ router.get('/dashboard-overview', async (req, res) => {
         const experimentsPassed = passedExpSet.size;
         const experimentsRemaining = Math.max(0, totalExperiments - experimentsPassed);
 
-        // 3. Team Registration Status
-        const studentTeams = await StudentGroup.find({
-            $or: [
-                { leaderUsername: student.username },
-                { 'members.registrationId': student.registrationId || student.username },
-                { 'members.name': student.username }
-            ]
-        }).sort({ createdAt: -1 }).lean();
-
-        let teamStatus = 'Not Registered';
-        let latestTeam = null;
-        if (studentTeams.length > 0) {
-            latestTeam = studentTeams[0];
-            const practicalNotice = latestTeam.allowedPractical || latestTeam.testStatus === 'Passed'
-                ? 'Allowed for Practical ✓'
-                : 'Practical Locked (Waiting for 2-Member Pass)';
-            teamStatus = `${latestTeam.groupName} (2 Members) [${latestTeam.experimentNumber}] • ${practicalNotice}`;
-        }
+        // 3. Individual Practical Access Status
+        const practicalStatus = experimentsPassed > 0
+            ? `Practical Unlocked (${experimentsPassed} Passed)`
+            : 'Pre-Lab Assessment Required';
 
         // 4. Current Lab Session Status
         let currentSessionStatus = 'No Active Session';
-        if (latestTeam) {
-            const activeSession = await LabSession.findOne({
-                groupId: latestTeam.groupId
-            }).sort({ createdAt: -1 }).lean();
+        const activeSession = await LabSession.findOne({
+            $or: [
+                { studentUsername: student.username },
+                { studentNames: student.fullName || student.username }
+            ]
+        }).sort({ createdAt: -1 }).lean();
 
-            if (activeSession) {
-                currentSessionStatus = activeSession.status;
-            } else {
-                currentSessionStatus = latestTeam.status || 'Registered';
-            }
+        if (activeSession) {
+            currentSessionStatus = activeSession.status;
         }
 
         // 5. Recent Activity List
@@ -192,87 +171,6 @@ router.get('/dashboard-overview', async (req, res) => {
             });
         }
 
-        // 6. Team Finished Experiments & Tabular Updates
-        // Query all lab sessions completed or in progress for student's groups
-        const groupIds = studentTeams.map(g => g.groupId);
-        const groupSessions = await LabSession.find({ groupId: { $in: groupIds } }).sort({ updatedAt: -1 }).lean();
-
-        const teamFinishedExperiments = [];
-        const finishedExpNumbers = new Set();
-
-        groupSessions.forEach(sess => {
-            if (sess.status === 'Completed' || sess.completedAt) {
-                finishedExpNumbers.add(sess.experimentNumber);
-                teamFinishedExperiments.push({
-                    experimentNumber: sess.experimentNumber || 'EXP',
-                    title: sess.experimentTitle || `${sess.experimentNumber} Practical`,
-                    groupName: sess.groupName || 'Team',
-                    subject: sess.subject || 'Engineering Lab',
-                    status: 'Finished & Verified',
-                    finishedDate: sess.completedAt || sess.updatedAt || sess.createdAt,
-                    verifiedByStaff: true
-                });
-            }
-        });
-
-        // Also check if any group is registered and ready
-        studentTeams.forEach(t => {
-            if (!finishedExpNumbers.has(t.experimentNumber)) {
-                teamFinishedExperiments.push({
-                    experimentNumber: t.experimentNumber,
-                    title: `${t.experimentNumber} Practical Session`,
-                    groupName: t.groupName,
-                    subject: t.subject || 'Lab Curriculum',
-                    status: t.status === 'Components Issued' ? 'In Progress (Active)' : 'Team Registered',
-                    finishedDate: t.createdAt,
-                    verifiedByStaff: t.status === 'Components Issued'
-                });
-            }
-        });
-
-        // Live updates feed for the side column
-        const liveLabUpdates = [];
-
-        // Add exam attempts
-        recentAttempts.slice(0, 3).forEach(a => {
-            liveLabUpdates.push({
-                title: `${a.experimentNumber} Pre-Lab Assessment`,
-                subject: a.subject,
-                status: a.passed ? 'Passed ✓' : 'Attempted',
-                statusClass: a.passed ? 'passed' : 'warning',
-                timestamp: a.submissionTime || a.createdAt,
-                details: `Score: ${a.score}/${a.totalMarks} • Pass status recorded`
-            });
-        });
-
-        // Add component issues or returns
-        const groupNames = studentTeams.map(t => t.groupName);
-        if (groupNames.length > 0) {
-            const issues = await ComponentIssue.find({ groupName: { $in: groupNames } }).sort({ createdAt: -1 }).limit(3).lean();
-            issues.forEach(iss => {
-                liveLabUpdates.push({
-                    title: `${iss.experimentNumber} Hardware Issue`,
-                    subject: iss.groupName,
-                    status: iss.status || 'Issued',
-                    statusClass: iss.status === 'Issued' ? 'passed' : 'info',
-                    timestamp: iss.issueDate || iss.createdAt,
-                    details: `${(iss.components || []).length} components allocated at workbench`
-                });
-            });
-        }
-
-        // Add default welcome notification if updates list is empty
-        if (liveLabUpdates.length === 0) {
-            liveLabUpdates.push({
-                title: 'Student Portal Active',
-                subject: 'AI Lab Management System',
-                status: 'Online',
-                statusClass: 'passed',
-                timestamp: new Date(),
-                details: 'Choose a subject below to begin pre-lab assessment and team practical.'
-            });
-        }
-
         res.json({
             success: true,
             data: {
@@ -280,13 +178,9 @@ router.get('/dashboard-overview', async (req, res) => {
                 experimentsAttempted,
                 experimentsPassed,
                 experimentsRemaining,
-                teamRegistrationStatus: teamStatus,
+                practicalStatus,
                 currentLabSessionStatus: currentSessionStatus,
-                latestTeam,
-                recentActivity,
-                teamFinishedExperiments,
-                teamFinishedCount: finishedExpNumbers.size,
-                liveLabUpdates
+                recentActivity
             }
         });
     } catch (err) {
@@ -388,14 +282,13 @@ router.get('/experiments', async (req, res) => {
 
         const experiments = await Experiment.find(query).sort({ experimentNumber: 1 }).lean();
 
-        // Get student's attempts across these experiments
-        const [studentAttempts, studentGroups, questionSets] = await Promise.all([
+        // Get student's attempts and active sessions across these experiments
+        const [studentAttempts, studentSessions, questionSets] = await Promise.all([
             ExamAttempt.find({ studentUsername: student.username }).sort({ createdAt: -1 }).lean(),
-            StudentGroup.find({
+            LabSession.find({
                 $or: [
-                    { leaderUsername: student.username },
-                    { 'members.registrationId': student.registrationId || student.username },
-                    { 'members.name': student.username }
+                    { studentUsername: student.username },
+                    { studentNames: student.fullName || student.username }
                 ]
             }).lean(),
             QuestionSet.find({ isPublished: true }).lean()
@@ -417,26 +310,26 @@ router.get('/experiments', async (req, res) => {
             let canAttempt = true;
             let statusDetails = '';
 
-            const registeredTeam = studentGroups.find(g => g.experimentNumber === exp.experimentNumber);
+            const activeSession = studentSessions.find(s => s.experimentNumber === exp.experimentNumber);
 
             if (passedAttempt) {
-                if (registeredTeam) {
-                    if (registeredTeam.status === 'Completed') {
+                if (activeSession) {
+                    if (activeSession.status === 'Completed') {
                         studentStatus = 'Completed';
-                        statusDetails = 'Lab session completed';
-                    } else if (registeredTeam.status === 'Awaiting Component Issue') {
+                        statusDetails = 'Practical session completed';
+                    } else if (activeSession.status === 'Awaiting Component Issue') {
                         studentStatus = 'Ready for Components';
-                        statusDetails = 'Team registered. Components pending staff issue.';
-                    } else if (registeredTeam.status === 'Components Issued' || registeredTeam.status === 'Experiment In Progress') {
+                        statusDetails = 'Assessment passed! Components pending staff issue.';
+                    } else if (activeSession.status === 'Components Issued' || activeSession.status === 'Experiment In Progress') {
                         studentStatus = 'In Lab Session';
                         statusDetails = 'Components issued. Practical session ongoing.';
                     } else {
                         studentStatus = 'Ready for Components';
-                        statusDetails = 'Registered in team ' + registeredTeam.groupName;
+                        statusDetails = 'Assessment passed! Hardware issuance unlocked.';
                     }
                 } else {
-                    studentStatus = 'Awaiting Team Registration';
-                    statusDetails = 'Assessment passed! Please register your lab team.';
+                    studentStatus = 'Ready for Components';
+                    statusDetails = 'Assessment passed! Hardware issuance unlocked.';
                 }
                 canAttempt = false; // Already passed
             } else if (inProgressAttempt) {
@@ -571,7 +464,7 @@ router.get('/experiments/:expNum', async (req, res) => {
                     'Copy, paste, and right-click actions are restricted during the assessment.',
                     'Optional camera monitoring verifies that the examinee is present without third-party assistance.',
                     'Server calculates all final scores against the configured pass threshold.',
-                    'Passing unlocks laboratory team registration for component issue.'
+                    'Passing unlocks the practical session and hardware component issuance.'
                 ]
             }
         });
@@ -953,60 +846,24 @@ router.post('/exams/submit', async (req, res) => {
 
         await attempt.save();
 
-        let teamPracticalUnlocked = false;
-        let groupPracticalMessage = '';
-
         if (passed) {
-            // Find any 2-member StudentGroup for this experiment containing this student
-            const group = await StudentGroup.findOne({
-                experimentNumber: attempt.experimentNumber,
-                $or: [
-                    { leaderUsername: student.username },
-                    { partnerUsername: student.username },
-                    { 'members.registrationId': student.registrationId || student.username },
-                    { 'members.name': student.username }
-                ]
-            });
-
-            if (group) {
-                // Determine the two members
-                const m1User = group.leaderUsername || (group.members[0] ? group.members[0].registrationId.replace(/^STU-/, '').toLowerCase() : null);
-                const m2User = group.partnerUsername || (group.members[1] ? group.members[1].registrationId.replace(/^STU-/, '').toLowerCase() : null);
-
-                const [p1Attempt, p2Attempt] = await Promise.all([
-                    m1User ? ExamAttempt.findOne({ studentUsername: new RegExp(`^${m1User}$`, 'i'), experimentNumber: attempt.experimentNumber, passed: true }) : null,
-                    m2User ? ExamAttempt.findOne({ studentUsername: new RegExp(`^${m2User}$`, 'i'), experimentNumber: attempt.experimentNumber, passed: true }) : null
-                ]);
-
-                group.member1Passed = !!p1Attempt;
-                group.member2Passed = !!p2Attempt;
-
-                if (group.member1Passed && group.member2Passed) {
-                    group.allowedPractical = true;
-                    group.testStatus = 'Passed';
-                    if (group.status === 'Test Pending' || group.status === 'Registered') {
-                        group.status = 'Awaiting Component Issue';
-                    }
-                    teamPracticalUnlocked = true;
-                    groupPracticalMessage = `Both 2 members of team "${group.groupName}" have passed! Practical session & hardware issuance are now ALLOWED.`;
-                } else {
-                    groupPracticalMessage = `Team "${group.groupName}": One member passed. Waiting for 2nd member to pass before practical is allowed.`;
-                }
-
-                await group.save();
-
-                if (teamPracticalUnlocked) {
-                    await LabSession.updateMany(
-                        { groupId: group.groupId, status: { $in: ['Test Pending', 'Registered'] } },
-                        { $set: { status: 'Awaiting Component Issue' } }
-                    );
-                }
-            }
+            // Update any existing pending session for this student to Awaiting Component Issue
+            await LabSession.updateMany(
+                {
+                    experimentNumber: attempt.experimentNumber,
+                    $or: [
+                        { studentUsername: student.username },
+                        { studentNames: student.fullName || student.username }
+                    ],
+                    status: { $in: ['Test Pending', 'Registered'] }
+                },
+                { $set: { status: 'Awaiting Component Issue' } }
+            );
         }
 
         res.json({
             success: true,
-            message: passed ? (teamPracticalUnlocked ? groupPracticalMessage : 'Assessment submitted successfully! You passed.') : 'Assessment submitted. Did not meet passing threshold.',
+            message: passed ? 'Assessment submitted successfully! Pre-lab passed and practical session unlocked.' : 'Assessment submitted. Did not meet passing threshold.',
             data: {
                 attemptId: attempt.attemptId,
                 experimentNumber: attempt.experimentNumber,
@@ -1021,7 +878,7 @@ router.post('/exams/submit', async (req, res) => {
                 penaltiesApplied: totalPenalty,
                 status: attempt.status,
                 nextStep: passed
-                    ? 'Congratulations! You have passed the experiment assessment. Register your lab team to continue.'
+                    ? 'Congratulations! You have passed the pre-lab assessment. Your practical session and hardware component issuance are now unlocked.'
                     : 'Review the lab manual and objectives before attempting retake.'
             }
         });
@@ -1032,238 +889,7 @@ router.post('/exams/submit', async (req, res) => {
 });
 
 // ==========================================
-// 9. STUDENT DIRECTORY (FOR LAB PARTNER SELECTION)
-// ==========================================
-router.get('/directory', async (req, res) => {
-    try {
-        const student = req.student;
-        const { experimentNumber } = req.query;
-
-        // Find other registered student accounts
-        const students = await User.find(
-            { role: 'student', username: { $ne: student.username } },
-            'username fullName registrationId'
-        ).limit(50).lean();
-
-        let passedUsernames = new Set();
-        if (experimentNumber) {
-            const passedAttempts = await ExamAttempt.find({
-                experimentNumber,
-                passed: true
-            }).select('studentUsername').lean();
-            passedUsernames = new Set(passedAttempts.map(a => a.studentUsername.toLowerCase()));
-        }
-
-        res.json({
-            success: true,
-            data: students.map(s => ({
-                username: s.username,
-                fullName: s.fullName || s.username,
-                registrationId: s.registrationId || `STU-${s.username.toUpperCase()}`,
-                passedAssessment: passedUsernames.has(s.username.toLowerCase())
-            }))
-        });
-    } catch (err) {
-        console.error('Directory fetch error:', err);
-        res.status(500).json({ success: false, message: 'Failed to load student directory' });
-    }
-});
-
-// ==========================================
-// 10. LAB TEAM REGISTRATION (EXACTLY 2 MEMBERS - DUAL PASS REQUIRED FOR PRACTICAL)
-// ==========================================
-router.post('/team/register', async (req, res) => {
-    try {
-        const leader = req.student;
-        const { experimentNumber, teamName, partnerUsername, members } = req.body;
-
-        if (!experimentNumber || !teamName) {
-            return res.status(400).json({
-                success: false,
-                message: 'Experiment number and team name are required.'
-            });
-        }
-
-        const trimmedTeamName = teamName.trim();
-        if (trimmedTeamName.length < 3) {
-            return res.status(400).json({
-                success: false,
-                message: 'Team name must be at least 3 characters long.'
-            });
-        }
-
-        // Determine partner username (either direct partnerUsername or first element in members array)
-        let resolvedPartner = partnerUsername;
-        if (!resolvedPartner && Array.isArray(members) && members.length > 0) {
-            resolvedPartner = typeof members[0] === 'string' ? members[0] : (members[0].username || members[0].name);
-        }
-
-        if (!resolvedPartner || !resolvedPartner.trim()) {
-            return res.status(400).json({
-                success: false,
-                message: 'A lab team consists of exactly 2 members. Please select your 1 lab partner.'
-            });
-        }
-
-        resolvedPartner = resolvedPartner.trim();
-
-        if (resolvedPartner.toLowerCase() === leader.username.toLowerCase()) {
-            return res.status(400).json({
-                success: false,
-                message: 'You cannot select yourself as your lab partner. Please choose another registered student.'
-            });
-        }
-
-        // Validate partner exists in database
-        const partnerUser = await User.findOne({
-            username: new RegExp(`^${resolvedPartner}$`, 'i'),
-            role: 'student'
-        });
-
-        if (!partnerUser) {
-            return res.status(400).json({
-                success: false,
-                message: `Student account "${resolvedPartner}" is not registered in the system.`
-            });
-        }
-
-        // 1. Verify Member 1 (Authenticated Student) has passed
-        const leaderPassedAttempt = await ExamAttempt.findOne({
-            studentUsername: new RegExp(`^${leader.username}$`, 'i'),
-            experimentNumber,
-            passed: true
-        });
-
-        if (!leaderPassedAttempt) {
-            return res.status(403).json({
-                success: false,
-                message: 'You must pass the pre-lab experiment assessment before registering a lab team.'
-            });
-        }
-
-        // 2. Check Member 2 (Lab Partner) pass status
-        const partnerPassedAttempt = await ExamAttempt.findOne({
-            studentUsername: new RegExp(`^${partnerUser.username}$`, 'i'),
-            experimentNumber,
-            passed: true
-        });
-
-        const member1Passed = true;
-        const member2Passed = !!partnerPassedAttempt;
-        const allowedPractical = member1Passed && member2Passed;
-
-        // 3. Verify neither student is already in a team for this experiment
-        const existingTeam = await StudentGroup.findOne({
-            experimentNumber,
-            $or: [
-                { leaderUsername: { $in: [leader.username, partnerUser.username] } },
-                { partnerUsername: { $in: [leader.username, partnerUser.username] } },
-                { 'members.registrationId': { $in: [leader.registrationId || leader.username, partnerUser.registrationId || partnerUser.username] } },
-                { 'members.name': { $in: [leader.fullName || leader.username, partnerUser.fullName || partnerUser.username] } }
-            ]
-        });
-
-        if (existingTeam) {
-            return res.status(409).json({
-                success: false,
-                message: `One or both members are already registered in team "${existingTeam.groupName}" for ${experimentNumber}.`,
-                group: existingTeam
-            });
-        }
-
-        // 4. Construct exactly 2 members
-        const teamMembers = [
-            {
-                name: leader.fullName || leader.username,
-                registrationId: leader.registrationId || `STU-${leader.username.toUpperCase()}`,
-                email: `${leader.username}@student.portal`
-            },
-            {
-                name: partnerUser.fullName || partnerUser.username,
-                registrationId: partnerUser.registrationId || `STU-${partnerUser.username.toUpperCase()}`,
-                email: `${partnerUser.username}@student.portal`
-            }
-        ];
-
-        // Fetch experiment to retrieve required components list
-        const exp = await Experiment.findOne({ experimentNumber }).lean();
-        const assignedComponents = (exp && exp.requiredComponents) ? exp.requiredComponents.map(c => ({
-            componentName: c.componentName,
-            partNumber: c.partNumber,
-            quantity: c.quantity,
-            issued: false
-        })) : [];
-
-        // 5. Create StudentGroup record
-        const groupId = `GRP-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
-        const studentGroup = new StudentGroup({
-            groupId,
-            groupName: trimmedTeamName,
-            leaderUsername: leader.username,
-            partnerUsername: partnerUser.username,
-            leaderRegistrationId: leader.registrationId || `STU-${leader.username.toUpperCase()}`,
-            subject: exp ? exp.subject : 'Lab Subject',
-            experimentNumber,
-            members: teamMembers,
-            member1Passed,
-            member2Passed,
-            allowedPractical,
-            testStatus: allowedPractical ? 'Passed' : 'Pending',
-            testScore: leaderPassedAttempt.score,
-            testMaxScore: leaderPassedAttempt.totalMarks,
-            assignedComponents,
-            status: allowedPractical ? 'Awaiting Component Issue' : 'Test Pending'
-        });
-
-        await studentGroup.save();
-
-        // 6. Create initial LabSession
-        const sessionId = `SES-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`;
-        const labSession = new LabSession({
-            sessionId,
-            groupId: studentGroup.groupId,
-            groupName: studentGroup.groupName,
-            studentNames: teamMembers.map(m => m.name),
-            experimentNumber,
-            experimentTitle: exp ? exp.title : 'Lab Practical',
-            subject: exp ? exp.subject : 'Lab Subject',
-            startTime: new Date(),
-            status: allowedPractical ? 'Awaiting Component Issue' : 'Test Pending',
-            componentsIssued: []
-        });
-
-        await labSession.save();
-
-        const successMessage = allowedPractical
-            ? `Team "${trimmedTeamName}" successfully registered! Both 2 members have passed the assessment. Practical session & components are now ALLOWED.`
-            : `Team "${trimmedTeamName}" registered with 2 members. Practical session is LOCKED until both members pass. (${partnerUser.fullName || partnerUser.username} has not passed the ${experimentNumber} assessment yet).`;
-
-        res.status(201).json({
-            success: true,
-            message: successMessage,
-            data: {
-                groupId: studentGroup.groupId,
-                groupName: studentGroup.groupName,
-                experimentNumber: studentGroup.experimentNumber,
-                subject: studentGroup.subject,
-                membersCount: 2,
-                members: teamMembers,
-                member1Passed,
-                member2Passed,
-                allowedPractical,
-                status: studentGroup.status,
-                testStatus: studentGroup.testStatus,
-                sessionId: labSession.sessionId
-            }
-        });
-    } catch (err) {
-        console.error('Team registration error:', err);
-        res.status(500).json({ success: false, message: err.message || 'Failed to register team' });
-    }
-});
-
-// ==========================================
-// 11. EXPERIMENT COMPONENT REQUIREMENTS
+// 9. EXPERIMENT COMPONENT REQUIREMENTS
 // ==========================================
 router.get('/components/:expNum', async (req, res) => {
     try {
@@ -1298,36 +924,36 @@ router.get('/components/:expNum', async (req, res) => {
             };
         });
 
-        // Check if student's team has components issued
-        const studentTeam = await StudentGroup.findOne({
+        // Check if student individually passed the pre-lab assessment
+        const passedAttempt = await ExamAttempt.findOne({
+            studentUsername: new RegExp(`^${student.username}$`, 'i'),
+            experimentNumber: expNum,
+            passed: true
+        }).lean();
+
+        const allowedPractical = !!passedAttempt;
+
+        // Check if components have been issued for this student & experiment
+        const issueRecord = await ComponentIssue.findOne({
             experimentNumber: expNum,
             $or: [
-                { leaderUsername: student.username },
-                { partnerUsername: student.username },
-                { 'members.registrationId': student.registrationId || student.username }
+                { studentUsername: student.username },
+                { groupId: student.registrationId || student.username }
             ]
         }).lean();
 
-        let issueStatus = 'Team Registration Required';
+        let issueStatus = 'Pre-Lab Assessment Required';
         let issueDetails = null;
 
-        if (studentTeam) {
-            const isDualPassed = studentTeam.allowedPractical || studentTeam.testStatus === 'Passed';
-            if (!isDualPassed) {
-                issueStatus = 'Practical Locked - Waiting for both 2 members to pass assessment';
-            } else {
-                const issueRecord = await ComponentIssue.findOne({ groupId: studentTeam.groupId }).lean();
-                if (issueRecord) {
-                    issueStatus = 'Components Issued';
-                    issueDetails = {
-                        issuedBy: issueRecord.issuedBy,
-                        issueTimestamp: issueRecord.issueTimestamp,
-                        components: issueRecord.components
-                    };
-                } else {
-                    issueStatus = 'Allowed for Practical (Awaiting Staff Issue)';
-                }
-            }
+        if (issueRecord) {
+            issueStatus = 'Components Issued';
+            issueDetails = {
+                issuedBy: issueRecord.issuedBy,
+                issueTimestamp: issueRecord.issueTimestamp,
+                components: issueRecord.components
+            };
+        } else if (allowedPractical) {
+            issueStatus = 'Allowed for Practical (Awaiting Staff Issue)';
         }
 
         res.json({
@@ -1340,11 +966,7 @@ router.get('/components/:expNum', async (req, res) => {
                 components: detailedComponents,
                 issueStatus,
                 issueDetails,
-                teamName: studentTeam ? studentTeam.groupName : null,
-                allowedPractical: studentTeam ? (studentTeam.allowedPractical || studentTeam.testStatus === 'Passed') : false,
-                member1Passed: studentTeam?.member1Passed,
-                member2Passed: studentTeam?.member2Passed,
-                teamMembers: studentTeam ? studentTeam.members : []
+                allowedPractical
             }
         });
     } catch (err) {
@@ -1354,7 +976,7 @@ router.get('/components/:expNum', async (req, res) => {
 });
 
 // ==========================================
-// 12. COMPREHENSIVE EXPERIMENT & LAB HISTORY
+// 10. COMPREHENSIVE EXPERIMENT & LAB HISTORY
 // ==========================================
 router.get('/history', async (req, res) => {
     try {
@@ -1365,39 +987,44 @@ router.get('/history', async (req, res) => {
             .sort({ createdAt: -1 })
             .lean();
 
-        // Fetch student's groups
-        const groups = await StudentGroup.find({
-            $or: [
-                { leaderUsername: student.username },
-                { 'members.registrationId': student.registrationId || student.username }
-            ]
-        }).sort({ createdAt: -1 }).lean();
-
-        // Fetch lab sessions for these groups
-        const groupIds = groups.map(g => g.groupId);
+        // Fetch lab sessions, component issues, and inspections for this student
         const [sessions, issues, inspections] = await Promise.all([
-            LabSession.find({ groupId: { $in: groupIds } }).sort({ createdAt: -1 }).lean(),
-            ComponentIssue.find({ groupId: { $in: groupIds } }).lean(),
-            ReturnInspection.find({ groupId: { $in: groupIds } }).lean()
+            LabSession.find({
+                $or: [
+                    { studentUsername: student.username },
+                    { studentNames: student.fullName || student.username }
+                ]
+            }).sort({ createdAt: -1 }).lean(),
+            ComponentIssue.find({
+                $or: [
+                    { studentUsername: student.username },
+                    { groupId: student.registrationId || student.username }
+                ]
+            }).lean(),
+            ReturnInspection.find({
+                $or: [
+                    { studentUsername: student.username },
+                    { groupId: student.registrationId || student.username }
+                ]
+            }).lean()
         ]);
 
         const sessionMap = {};
-        sessions.forEach(s => sessionMap[s.groupId] = s);
+        sessions.forEach(s => sessionMap[s.experimentNumber] = s);
 
         const issueMap = {};
-        issues.forEach(i => issueMap[i.groupId] = i);
+        issues.forEach(i => issueMap[i.experimentNumber] = i);
 
         const inspectionMap = {};
-        inspections.forEach(ins => inspectionMap[ins.groupId] = ins);
+        inspections.forEach(ins => inspectionMap[ins.experimentNumber || ins.groupId] = ins);
 
         // Group history by experimentNumber
         const historyRecords = [];
 
         attempts.forEach(att => {
-            const matchingGroup = groups.find(g => g.experimentNumber === att.experimentNumber);
-            const matchingSession = matchingGroup ? sessionMap[matchingGroup.groupId] : null;
-            const matchingIssue = matchingGroup ? issueMap[matchingGroup.groupId] : null;
-            const matchingInspection = matchingGroup ? inspectionMap[matchingGroup.groupId] : null;
+            const matchingSession = sessionMap[att.experimentNumber];
+            const matchingIssue = issueMap[att.experimentNumber];
+            const matchingInspection = inspectionMap[att.experimentNumber];
 
             historyRecords.push({
                 attemptId: att.attemptId,
@@ -1413,12 +1040,11 @@ router.get('/history', async (req, res) => {
                 passed: att.passed,
                 status: att.status,
                 warningCount: att.warningCount || 0,
-                teamName: matchingGroup ? matchingGroup.groupName : 'Not Registered',
                 componentsIssuedTime: matchingIssue ? matchingIssue.issueTimestamp : null,
                 issuedBy: matchingIssue ? matchingIssue.issuedBy : null,
                 sessionStartTime: matchingSession ? matchingSession.startTime : null,
                 sessionEndTime: matchingSession ? matchingSession.endTime : null,
-                sessionStatus: matchingSession ? matchingSession.status : (att.passed ? 'Awaiting Team' : 'Test Incomplete'),
+                sessionStatus: matchingSession ? matchingSession.status : (att.passed ? 'Ready for Practical' : 'Test Incomplete'),
                 componentsReturnTime: matchingInspection ? matchingInspection.inspectionTimestamp : null,
                 inspectionOutcome: matchingInspection ? matchingInspection.inspectionStatus : 'Not Inspected',
                 snapshots: att.snapshots || [],

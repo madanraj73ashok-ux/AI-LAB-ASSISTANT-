@@ -1,364 +1,279 @@
 "use client";
 
 import * as React from "react";
-import { useState, useId, useEffect } from "react";
-import { Slot } from "@radix-ui/react-slot";
-import * as LabelPrimitive from "@radix-ui/react-label";
-import { cva, type VariantProps } from "class-variance-authority";
+import { useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
-import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
 
-function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs));
+export interface AuthUIProps {
+  onLogin?: (credentials: { username: string; password: string; role?: string }) => void;
+  onRegister?: (data: { username: string; password: string; fullName?: string }) => void;
 }
 
-export interface TypewriterProps {
-  text: string | string[];
-  speed?: number;
-  cursor?: string;
-  loop?: boolean;
-  deleteSpeed?: number;
-  delay?: number;
-  className?: string;
-}
+export function AuthUI({ onLogin, onRegister }: AuthUIProps) {
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [role, setRole] = useState<"student" | "staff">("student");
+  const [showPassword, setShowPassword] = useState(false);
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [fullName, setFullName] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-export function Typewriter({
-  text,
-  speed = 100,
-  cursor = "|",
-  loop = false,
-  deleteSpeed = 50,
-  delay = 1500,
-  className,
-}: TypewriterProps) {
-  const [displayText, setDisplayText] = useState("");
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [textArrayIndex, setTextArrayIndex] = useState(0);
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    setSuccess("");
 
-  const textArray = Array.isArray(text) ? text : [text];
-  const currentText = textArray[textArrayIndex] || "";
+    if (!username.trim() || !password.trim()) {
+      setError("Please fill in all fields.");
+      return;
+    }
 
-  useEffect(() => {
-    if (!currentText) return;
+    setLoading(true);
 
-    const timeout = setTimeout(
-      () => {
-        if (!isDeleting) {
-          if (currentIndex < currentText.length) {
-            setDisplayText((prev) => prev + currentText[currentIndex]);
-            setCurrentIndex((prev) => prev + 1);
-          } else if (loop) {
-            setTimeout(() => setIsDeleting(true), delay);
-          }
-        } else {
-          if (displayText.length > 0) {
-            setDisplayText((prev) => prev.slice(0, -1));
+    if (isSignUp) {
+      if (password.length < 6) {
+        setError("Password must be at least 6 characters.");
+        setLoading(false);
+        return;
+      }
+      if (onRegister) {
+        onRegister({ username, password, fullName });
+      } else {
+        try {
+          const res = await fetch("/signup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) {
+            setError(data.message || "Failed to create account.");
           } else {
-            setIsDeleting(false);
-            setCurrentIndex(0);
-            setTextArrayIndex((prev) => (prev + 1) % textArray.length);
+            setSuccess("Account created successfully! Switching to login...");
+            setTimeout(() => {
+              setIsSignUp(false);
+              setSuccess("");
+            }, 1200);
           }
+        } catch {
+          setError("Server error during registration.");
         }
-      },
-      isDeleting ? deleteSpeed : speed,
-    );
-
-    return () => clearTimeout(timeout);
-  }, [
-    currentIndex,
-    isDeleting,
-    currentText,
-    loop,
-    speed,
-    deleteSpeed,
-    delay,
-    displayText,
-    text,
-  ]);
-
-  return (
-    <span className={className}>
-      {displayText}
-      <span className="animate-pulse">{cursor}</span>
-    </span>
-  );
-}
-
-const labelVariants = cva(
-  "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
-);
-
-const Label = React.forwardRef<
-  React.ElementRef<typeof LabelPrimitive.Root>,
-  React.ComponentPropsWithoutRef<typeof LabelPrimitive.Root> &
-    VariantProps<typeof labelVariants>
->(({ className, ...props }, ref) => (
-  <LabelPrimitive.Root
-    ref={ref}
-    className={cn(labelVariants(), className)}
-    {...props}
-  />
-));
-Label.displayName = LabelPrimitive.Root.displayName;
-
-const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
-  {
-    variants: {
-      variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        destructive: "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-        outline: "border border-input dark:border-input/50 bg-background hover:bg-accent hover:text-accent-foreground",
-        secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
-        ghost: "hover:bg-accent hover:text-accent-foreground",
-        link: "text-primary-foreground/60 underline-offset-4 hover:underline",
-      },
-      size: {
-        default: "h-10 px-4 py-2",
-        sm: "h-9 rounded-md px-3",
-        lg: "h-12 rounded-md px-6",
-        icon: "h-8 w-8",
-      },
-    },
-    defaultVariants: {
-      variant: "default",
-      size: "default",
-    },
-  }
-);
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
-  asChild?: boolean;
-}
-const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild = false, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button";
-    return <Comp className={cn(buttonVariants({ variant, size, className }))} ref={ref} {...props} />;
-  }
-);
-Button.displayName = "Button";
-
-const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
-  ({ className, type, ...props }, ref) => {
-    return (
-      <input
-        type={type}
-        className={cn(
-          "flex h-10 w-full rounded-lg border border-input dark:border-input/50 bg-background px-3 py-3 text-sm text-foreground shadow-sm shadow-black/5 transition-shadow placeholder:text-muted-foreground/70 focus-visible:bg-accent focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50",
-          className
-        )}
-        ref={ref}
-        {...props}
-      />
-    );
-  }
-);
-Input.displayName = "Input";
-
-export interface PasswordInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-    label?: string;
-}
-const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputProps>(
-  ({ className, label, ...props }, ref) => {
-    const id = useId();
-    const [showPassword, setShowPassword] = useState(false);
-    const togglePasswordVisibility = () => setShowPassword((prev) => !prev);
-    return (
-      <div className="grid w-full items-center gap-2">
-        {label && <Label htmlFor={id}>{label}</Label>}
-        <div className="relative">
-          <Input id={id} type={showPassword ? "text" : "password"} className={cn("pe-10", className)} ref={ref} {...props} />
-          <button type="button" onClick={togglePasswordVisibility} className="absolute inset-y-0 end-0 flex h-full w-10 items-center justify-center text-muted-foreground/80 transition-colors hover:text-foreground focus-visible:text-foreground focus-visible:outline-none disabled:pointer-events-none disabled:opacity-50" aria-label={showPassword ? "Hide password" : "Show password"}>
-            {showPassword ? (<EyeOff className="size-4" aria-hidden="true" />) : (<Eye className="size-4" aria-hidden="true" />)}
-          </button>
-        </div>
-      </div>
-    );
-  }
-);
-PasswordInput.displayName = "PasswordInput";
-
-function SignInForm({ onLogin }: { onLogin?: (data: any) => void }) {
-  const handleSignIn = (event: React.FormEvent<HTMLFormElement>) => { 
-    event.preventDefault(); 
-    const formData = new FormData(event.currentTarget);
-    const email = formData.get("email");
-    const password = formData.get("password");
-    if (onLogin) onLogin({ email, password });
-    console.log("UI: Sign In form submitted", { email }); 
-  };
-  return (
-    <form onSubmit={handleSignIn} autoComplete="on" className="flex flex-col gap-8">
-      <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="text-2xl font-bold">Sign in to your account</h1>
-        <p className="text-balance text-sm text-muted-foreground">Enter your username or email below to sign in</p>
-      </div>
-      <div className="grid gap-4">
-        <div className="grid gap-2"><Label htmlFor="email">Email or Username</Label><Input id="email" name="email" type="text" placeholder="m@example.com or username" required autoComplete="email" /></div>
-        <PasswordInput name="password" label="Password" required autoComplete="current-password" placeholder="Password" />
-        <Button type="submit" variant="default" className="mt-2 bg-purple-600 hover:bg-purple-700 text-white">Sign In</Button>
-      </div>
-    </form>
-  );
-}
-
-function SignUpForm({ onRegister }: { onRegister?: (data: any) => void }) {
-  const handleSignUp = (event: React.FormEvent<HTMLFormElement>) => { 
-    event.preventDefault(); 
-    const formData = new FormData(event.currentTarget);
-    const name = formData.get("name");
-    const email = formData.get("email");
-    const password = formData.get("password");
-    if (onRegister) onRegister({ name, email, password });
-    console.log("UI: Sign Up form submitted", { name, email }); 
-  };
-  return (
-    <form onSubmit={handleSignUp} autoComplete="on" className="flex flex-col gap-8">
-      <div className="flex flex-col items-center gap-2 text-center">
-        <h1 className="text-2xl font-bold">Create an account</h1>
-        <p className="text-balance text-sm text-muted-foreground">Enter your details below to sign up</p>
-      </div>
-      <div className="grid gap-4">
-        <div className="grid gap-1"><Label htmlFor="name">Full Name</Label><Input id="name" name="name" type="text" placeholder="John Doe" required autoComplete="name" /></div>
-        <div className="grid gap-2"><Label htmlFor="email">Email or Username</Label><Input id="email" name="email" type="text" placeholder="m@example.com or username" required autoComplete="email" /></div>
-        <PasswordInput name="password" label="Password" required autoComplete="new-password" placeholder="Password"/>
-        <Button type="submit" variant="default" className="mt-2 bg-purple-600 hover:bg-purple-700 text-white">Sign Up</Button>
-      </div>
-    </form>
-  );
-}
-
-function AuthFormContainer({ 
-  isSignIn, 
-  onToggle, 
-  onLogin, 
-  onRegister 
-}: { 
-  isSignIn: boolean; 
-  onToggle: () => void; 
-  onLogin?: (data: any) => void;
-  onRegister?: (data: any) => void;
-}) {
-    return (
-        <div className="mx-auto grid w-[350px] gap-2">
-            {isSignIn ? <SignInForm onLogin={onLogin} /> : <SignUpForm onRegister={onRegister} />}
-            <div className="text-center text-sm">
-                {isSignIn ? "Don't have an account?" : "Already have an account?"}{" "}
-                <Button variant="link" className="pl-1 text-foreground" onClick={onToggle}>
-                    {isSignIn ? "Sign up" : "Sign in"}
-                </Button>
-            </div>
-            <div className="relative text-center text-sm after:absolute after:inset-0 after:top-1/2 after:z-0 after:flex after:items-center after:border-t after:border-border">
-                <span className="relative z-10 bg-background px-2 text-muted-foreground">Or continue with</span>
-            </div>
-            <Button variant="outline" type="button" onClick={() => console.log("UI: Google button clicked")}>
-                <img src="https://cdn.21st.dev/assets/mirror/38/38146bfd9eff6dbf0d74771f2e625c70d87d3770e0d080dbb6e50db1d5403f46.svg" alt="Google icon" className="mr-2 h-4 w-4" />
-                Continue with Google
-            </Button>
-        </div>
-    )
-}
-
-interface AuthContentProps {
-    image?: {
-        src: string;
-        alt: string;
-    };
-    quote?: {
-        text: string;
-        author: string;
-    }
-}
-
-interface AuthUIProps {
-    signInContent?: AuthContentProps;
-    signUpContent?: AuthContentProps;
-    onLogin?: (data: any) => void;
-    onRegister?: (data: any) => void;
-}
-
-const defaultSignInContent = {
-    image: {
-        src: "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=1200&q=80",
-        alt: "A beautiful interior design for sign-in"
-    },
-    quote: {
-        text: "Welcome Back! The journey continues.",
-        author: "EaseMize UI"
-    }
-};
-
-const defaultSignUpContent = {
-    image: {
-        src: "https://images.unsplash.com/photo-1600585154340-be6161a56a0c?auto=format&fit=crop&w=1200&q=80",
-        alt: "A vibrant, modern space for new beginnings"
-    },
-    quote: {
-        text: "Create an account. A new chapter awaits.",
-        author: "EaseMize UI"
-    }
-};
-
-export function AuthUI({ 
-  signInContent = {}, 
-  signUpContent = {},
-  onLogin,
-  onRegister
-}: AuthUIProps) {
-  const [isSignIn, setIsSignIn] = useState(true);
-  const toggleForm = () => setIsSignIn((prev) => !prev);
-
-  const finalSignInContent = {
-      image: { ...defaultSignInContent.image, ...signInContent.image },
-      quote: { ...defaultSignInContent.quote, ...signInContent.quote },
-  };
-  const finalSignUpContent = {
-      image: { ...defaultSignUpContent.image, ...signUpContent.image },
-      quote: { ...defaultSignUpContent.quote, ...signUpContent.quote },
-  };
-
-  const currentContent = isSignIn ? finalSignInContent : finalSignUpContent;
-
-  return (
-    <div className="w-full min-h-screen md:grid md:grid-cols-2 bg-background text-foreground">
-      <style>{`
-        input[type="password"]::-ms-reveal,
-        input[type="password"]::-ms-clear {
-          display: none;
+      }
+      setLoading(false);
+    } else {
+      if (onLogin) {
+        onLogin({ username, password, role });
+      } else {
+        try {
+          const res = await fetch("/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password, role }),
+          });
+          const data = await res.json();
+          if (!res.ok || !data.success) {
+            // Smart fallback check
+            const fallbackRole = role === "student" ? "staff" : "student";
+            const fallbackRes = await fetch("/login", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ username, password, role: fallbackRole }),
+            });
+            const fallbackData = await fallbackRes.json();
+            if (fallbackRes.ok && fallbackData.success) {
+              handleSuccess(fallbackData, fallbackRole);
+              return;
+            }
+            setError(data.message || "Invalid credentials.");
+            setLoading(false);
+            return;
+          }
+          handleSuccess(data, role);
+        } catch {
+          setError("Unable to connect to authentication server.");
+          setLoading(false);
         }
-      `}</style>
-      <div className="flex h-screen items-center justify-center p-6 md:h-auto md:p-0 md:py-12">
-        <AuthFormContainer 
-          isSignIn={isSignIn} 
-          onToggle={toggleForm} 
-          onLogin={onLogin}
-          onRegister={onRegister}
-        />
-      </div>
+      }
+    }
+  };
 
-      <div
-        className="hidden md:block relative bg-cover bg-center transition-all duration-500 ease-in-out"
-        style={{ backgroundImage: `url(${currentContent.image.src})` }}
-        key={currentContent.image.src}
-      >
-        <div className="absolute inset-x-0 bottom-0 h-[100px] bg-gradient-to-t from-background to-transparent" />
-        
-        <div className="relative z-10 flex h-full flex-col items-center justify-end p-2 pb-6">
-            <blockquote className="space-y-2 text-center text-white bg-black/40 backdrop-blur-md px-6 py-4 rounded-xl border border-white/10">
-              <p className="text-lg font-medium">
-                “<Typewriter
-                    key={currentContent.quote.text}
-                    text={currentContent.quote.text}
-                    speed={60}
-                  />”
-              </p>
-              <cite className="block text-sm font-light text-muted-foreground not-italic text-gray-300">
-                  — {currentContent.quote.author}
-              </cite>
-            </blockquote>
+  const handleSuccess = (data: any, userRole: string) => {
+    const uname = data.username || username;
+    localStorage.setItem("username", uname);
+    localStorage.setItem("role", userRole);
+    if (userRole === "staff" || userRole === "admin") {
+      sessionStorage.setItem("currentStaffUser", JSON.stringify(data.user || { username: uname, role: "staff" }));
+      window.location.href = "staff-dashboard.html";
+    } else {
+      sessionStorage.setItem("currentUser", JSON.stringify(data.user || { username: uname, role: "student" }));
+      window.location.href = "dashboard.html";
+    }
+  };
+
+  return (
+    <div className="min-h-screen w-full flex items-center justify-center p-4 bg-[#0d0e12] font-['Plus_Jakarta_Sans',sans-serif]">
+      <div className="w-full max-w-[1060px] min-h-[640px] bg-[#15161b] rounded-[28px] overflow-hidden shadow-2xl border border-white/5 grid grid-cols-1 md:grid-cols-2">
+        {/* Left Form Panel */}
+        <div className="p-8 md:p-14 flex flex-col justify-between bg-[#15161b]">
+          <div>
+            {/* Role Switcher */}
+            <div className="inline-flex bg-[#1c1d24] border border-[#272832] p-1 rounded-xl mb-7 gap-1">
+              <button
+                type="button"
+                onClick={() => { setRole("student"); setError(""); }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  role === "student"
+                    ? "bg-[#8b5cf6] text-white shadow-md shadow-purple-500/30"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                🎓 Student
+              </button>
+              <button
+                type="button"
+                onClick={() => { setRole("staff"); setError(""); if (isSignUp) setIsSignUp(false); }}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  role === "staff"
+                    ? "bg-[#8b5cf6] text-white shadow-md shadow-purple-500/30"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                🛡️ Staff & HOD
+              </button>
+            </div>
+
+            <h1 className="text-3xl md:text-4xl font-bold text-white tracking-tight font-['Outfit',sans-serif]">
+              {isSignUp ? "Sign Up" : "Login"}
+            </h1>
+            <p className="text-sm text-zinc-400 mt-1 mb-8">
+              {isSignUp
+                ? "Enter your details to create an account"
+                : role === "staff"
+                ? "Enter your staff / HOD account details"
+                : "Enter your account details"}
+            </p>
+
+            {error && (
+              <div className="mb-5 p-3 rounded-xl bg-red-950/30 border border-red-800/50 text-red-300 text-xs text-center">
+                {error}
+              </div>
+            )}
+            {success && (
+              <div className="mb-5 p-3 rounded-xl bg-emerald-950/30 border border-emerald-800/50 text-emerald-300 text-xs text-center">
+                {success}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {isSignUp && (
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-zinc-400">Full Name</label>
+                  <input
+                    type="text"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="Enter your full name"
+                    className="w-full bg-transparent border-b border-[#2b2c37] focus:border-[#8b5cf6] py-2 text-sm text-white placeholder-zinc-600 outline-none transition-colors"
+                  />
+                </div>
+              )}
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-zinc-400">Username</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Enter username"
+                  required
+                  className="w-full bg-transparent border-b border-[#2b2c37] focus:border-[#8b5cf6] py-2 text-sm text-white placeholder-zinc-600 outline-none transition-colors"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-xs font-medium text-zinc-400">Password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    required
+                    className="w-full bg-transparent border-b border-[#2b2c37] focus:border-[#8b5cf6] py-2 pr-8 text-sm text-white placeholder-zinc-600 outline-none transition-colors"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 text-zinc-500 hover:text-white transition-colors"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              {!isSignUp && (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => alert("Please contact your lab coordinator to reset credentials.")}
+                    className="text-xs text-zinc-400 hover:text-[#a78bfa] transition-colors"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3.5 bg-[#8b5cf6] hover:bg-[#7c3aed] text-white font-semibold text-sm rounded-xl shadow-lg shadow-purple-500/30 transition-all hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50"
+              >
+                {loading ? "Processing..." : isSignUp ? "Sign Up" : "Login"}
+              </button>
+            </form>
+          </div>
+
+          <div className="mt-8 flex items-center text-xs text-zinc-400">
+            <span>{isSignUp ? "Already have an account?" : "Don't have an account?"}</span>
+            <button
+              type="button"
+              onClick={() => { setIsSignUp(!isSignUp); setError(""); setSuccess(""); }}
+              className="ml-3 px-3 py-1.5 bg-[#202127] hover:bg-[#2a2b34] text-zinc-200 border border-[#2e303b] rounded-lg transition-colors"
+            >
+              {isSignUp ? "Login" : "Sign up"}
+            </button>
+          </div>
+        </div>
+
+        {/* Right Purple Illustration Panel */}
+        <div className="relative p-8 md:p-12 flex flex-col justify-between bg-gradient-to-br from-[#7c3aed] via-[#8b5cf6] to-[#6d28d9] overflow-hidden">
+          {/* Ambient organic blobs */}
+          <div className="absolute -top-20 -right-20 w-80 h-80 rounded-full bg-white/10 blur-2xl pointer-events-none" />
+          <div className="absolute -bottom-20 -left-20 w-72 h-72 rounded-full bg-purple-900/40 blur-xl pointer-events-none" />
+
+          <div className="relative z-10">
+            <h2 className="text-3xl md:text-5xl font-extrabold text-white leading-tight font-['Outfit',sans-serif]">
+              Welcome to<br />
+              <span>{role === "staff" ? "staff portal" : "student portal"}</span>
+            </h2>
+            <p className="text-purple-100 text-sm md:text-base mt-2 font-medium">
+              {role === "staff" ? "Login to access department controls" : "Login to access your account"}
+            </p>
+          </div>
+
+          <div className="relative z-10 flex justify-center items-end mt-auto pt-6">
+            <img
+              src="images/student_portal_illustration.jpg"
+              alt="Student Portal Illustration"
+              className="max-h-[380px] w-auto object-contain rounded-2xl drop-shadow-2xl"
+            />
+          </div>
         </div>
       </div>
     </div>
   );
 }
+
+export default AuthUI;

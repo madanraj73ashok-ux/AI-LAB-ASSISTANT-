@@ -128,7 +128,7 @@ The server automatically initializes a default staff account on first boot:
 │   ├── LabSession.js        # Scheduled lab sessions
 │   ├── QuestionSet.js       # Generated exam questions
 │   ├── ReturnInspection.js  # Returned component condition logs
-│   ├── StudentGroup.js      # Group assignments
+│   ├── StudentUser.js       # Student profiles & enrollment
 │   └── User.js              # User auth credentials & roles
 ├── routes/                  # Express REST API routes
 │   ├── staffRoutes.js       # Endpoints for staff operations

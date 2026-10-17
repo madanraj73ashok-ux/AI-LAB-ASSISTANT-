@@ -44,6 +44,10 @@ const experimentSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
+    staffInCharge: {
+        type: String,
+        default: ''
+    },
     createdBy: {
         type: String,
         default: 'staff_admin'
