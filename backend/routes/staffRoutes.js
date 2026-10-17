@@ -11,14 +11,15 @@ const Experiment = require('../models/Experiment');
 const LabManual = require('../models/LabManual');
 const QuestionSet = require('../models/QuestionSet');
 const Component = require('../models/Component');
-const StudentGroup = require('../models/StudentGroup');
 const LabSession = require('../models/LabSession');
 const ComponentIssue = require('../models/ComponentIssue');
 const ReturnInspection = require('../models/ReturnInspection');
 const AuditLog = require('../models/AuditLog');
 const ExamAttempt = require('../models/ExamAttempt');
 const User = require('../models/StaffUser');
+const StudentUser = require('../models/User');
 const DepartmentSchedule = require('../models/DepartmentSchedule');
+const DepartmentProfile = require('../models/DepartmentProfile');
 
 // Multer Storage for Lab Manuals
 const storage = multer.diskStorage({
@@ -83,14 +84,14 @@ async function requireStaff(req, res, next) {
             role: { $in: ['staff', 'HOD OF DEP', 'admin', 'hod'] }
         });
 
-        if (!user && trimmed !== 'HOD OF DEP' && trimmed !== 'staff_admin') {
+        if (!user && trimmed !== 'HOD OF DEP' && trimmed !== 'staff_admin' && trimmed !== 'admin') {
             return res.status(403).json({
                 success: false,
                 message: 'Access forbidden. This endpoint is restricted to authorized staff / HOD personnel only.'
             });
         }
 
-        req.staffUser = user || { username: trimmed, role: 'HOD OF DEP' };
+        req.staffUser = user || { username: trimmed, role: (trimmed === 'admin' || trimmed === 'HOD OF DEP') ? 'HOD OF DEP' : 'staff' };
         next();
     } catch (err) {
         console.error('Staff auth error:', err);
@@ -108,7 +109,7 @@ router.get('/metrics', async (req, res) => {
         const [
             totalExperiments,
             labManuals,
-            studentGroups,
+            totalStudents,
             activeLabSessions,
             pendingReturns,
             lowStockComponents,
@@ -117,7 +118,7 @@ router.get('/metrics', async (req, res) => {
         ] = await Promise.all([
             Experiment.countDocuments({ isActive: true }),
             LabManual.countDocuments({ isPublished: true }),
-            StudentGroup.countDocuments(),
+            StudentUser.countDocuments({ role: 'student' }),
             LabSession.countDocuments({
                 status: { $in: ['Components Issued', 'Experiment In Progress', 'Return Pending', 'Inspection Pending'] }
             }),
@@ -136,7 +137,7 @@ router.get('/metrics', async (req, res) => {
             data: {
                 totalExperiments,
                 labManuals,
-                studentGroups,
+                totalStudents,
                 activeLabSessions,
                 pendingReturns,
                 lowStockComponents,
@@ -756,61 +757,7 @@ router.delete('/questions/:id', async (req, res) => {
     }
 });
 
-// ==========================================
-// 5. STUDENT GROUP MANAGEMENT
-// ==========================================
-router.get('/groups', async (req, res) => {
-    try {
-        const { search, subject, status } = req.query;
-        const query = {};
-
-        if (search) {
-            query.$or = [
-                { groupId: { $regex: search, $options: 'i' } },
-                { groupName: { $regex: search, $options: 'i' } },
-                { 'members.name': { $regex: search, $options: 'i' } },
-                { 'members.registrationId': { $regex: search, $options: 'i' } }
-            ];
-        }
-        if (subject && subject !== 'All') query.subject = subject;
-        if (status && status !== 'All') query.status = status;
-
-        const groups = await StudentGroup.find(query).sort({ createdAt: -1 }).lean();
-        res.json({ success: true, data: groups });
-    } catch (error) {
-        res.status(500).json({ success: false, message: 'Failed to fetch student groups' });
-    }
-});
-
-router.post('/groups', async (req, res) => {
-    try {
-        const { groupName, subject, experimentNumber, members } = req.body;
-
-        if (!groupName || !subject || !experimentNumber || !members || !members.length) {
-            return res.status(400).json({ success: false, message: 'Group Name, Subject, Experiment, and Members are required.' });
-        }
-
-        const count = await StudentGroup.countDocuments();
-        const groupId = `GRP-2026-${String(count + 1).padStart(3, '0')}`;
-
-        const group = new StudentGroup({
-            groupId,
-            groupName: groupName.trim(),
-            subject: subject.trim(),
-            experimentNumber: experimentNumber.trim().toUpperCase(),
-            members,
-            testStatus: 'Pending',
-            status: 'Test Pending'
-        });
-
-        await group.save();
-        await logAudit('Register Group', 'Student Groups', req.headers['x-staff-user'] || 'staff_admin', `Registered group ${groupId}: ${group.groupName}`);
-
-        res.status(201).json({ success: true, message: 'Student group registered', data: group });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message || 'Error registering group' });
-    }
-});
+// (Student groups registration removed per individual student access model)
 
 // ==========================================
 // 6. COMPONENT INVENTORY MANAGEMENT
@@ -951,20 +898,6 @@ router.post('/components/:id/adjust', async (req, res) => {
 // ==========================================
 // 7. COMPONENT ISSUE RECORDS
 // ==========================================
-router.get('/issues/eligible-groups', async (req, res) => {
-    try {
-        // Groups eligible for component issue: testStatus === 'Passed' and not yet issued
-        const eligible = await StudentGroup.find({
-            testStatus: 'Passed',
-            status: { $in: ['Test Passed', 'Awaiting Component Issue'] }
-        }).lean();
-
-        res.json({ success: true, data: eligible });
-    } catch (error) {
-        res.status(500).json({ success: false, message: 'Error fetching eligible groups' });
-    }
-});
-
 router.get('/issues', async (req, res) => {
     try {
         const issues = await ComponentIssue.find().sort({ issueTimestamp: -1 }).lean();
@@ -976,38 +909,50 @@ router.get('/issues', async (req, res) => {
 
 router.post('/issues', async (req, res) => {
     try {
-        const { groupId, components, notes } = req.body;
+        const { registrationId, studentUsername, experimentNumber, components, notes } = req.body;
+        const studentId = registrationId || studentUsername;
 
-        if (!groupId || !components || !components.length) {
-            return res.status(400).json({ success: false, message: 'Group ID and components list are required.' });
+        if (!studentId || !components || !components.length) {
+            return res.status(400).json({ success: false, message: 'Student ID and components list are required.' });
         }
 
-        // 1. Verify group eligibility
-        const group = await StudentGroup.findOne({ groupId });
-        if (!group) return res.status(404).json({ success: false, message: 'Student group not found.' });
+        // Verify student passed pre-lab assessment for this experiment
+        const examAttempt = await ExamAttempt.findOne({
+            $or: [
+                { registrationId: studentId },
+                { studentUsername: studentId }
+            ],
+            ...(experimentNumber ? { experimentNumber } : {}),
+            passed: true
+        });
 
-        if (group.testStatus !== 'Passed' || group.allowedPractical === false) {
+        if (!examAttempt) {
             return res.status(403).json({
                 success: false,
-                message: `Group ${group.groupId} (${group.groupName}) is not eligible for practical. Both 2 members of the team must pass the assessment before components can be handed out.`
+                message: `Student ${studentId} has not passed the pre-lab assessment for this experiment. Assessment pass is required before components can be issued.`
             });
         }
 
-        // 2. Prevent duplicate active issues
-        const activeIssue = await ComponentIssue.findOne({ groupId });
+        const expNum = experimentNumber || examAttempt.experimentNumber;
+
+        // Prevent duplicate active issues for this student and experiment
         const activeSession = await LabSession.findOne({
-            groupId,
+            $or: [
+                { studentUsername: examAttempt.studentUsername },
+                { registrationId: examAttempt.registrationId }
+            ],
+            experimentNumber: expNum,
             status: { $in: ['Components Issued', 'Experiment In Progress'] }
         });
 
         if (activeSession) {
             return res.status(409).json({
                 success: false,
-                message: `Group ${group.groupId} already has an active session (${activeSession.sessionId}) with components issued.`
+                message: `Student ${studentId} already has an active session (${activeSession.sessionId}) with components issued.`
             });
         }
 
-        // 3. Verify stock availability and deduct
+        // Verify stock availability and deduct
         const staffUser = req.headers['x-staff-user'] || 'staff_admin';
         const formattedComponents = [];
 
@@ -1027,10 +972,10 @@ router.post('/issues', async (req, res) => {
             // Deduct stock
             comp.availableQuantity -= reqQty;
             comp.history.push({
-                action: 'Issued to Student Group',
+                action: 'Issued to Student',
                 quantityChange: -reqQty,
                 staff: staffUser,
-                remarks: `Issued to ${group.groupId} for ${group.experimentNumber}`
+                remarks: `Issued to ${examAttempt.studentName} (${studentId}) for ${expNum}`
             });
             await comp.save();
 
@@ -1044,30 +989,32 @@ router.post('/issues', async (req, res) => {
             });
         }
 
-        // 4. Generate Issue Record
+        // Generate Issue Record
         const issueCount = await ComponentIssue.countDocuments();
         const issueId = `ISS-${Date.now().toString().slice(-6)}-${String(issueCount + 1).padStart(3, '0')}`;
 
         const issue = new ComponentIssue({
             issueId,
             sessionId: `SES-${String(issueCount + 1001)}`,
-            groupId: group.groupId,
-            groupName: group.groupName,
-            experimentNumber: group.experimentNumber,
+            studentUsername: examAttempt.studentUsername,
+            registrationId: examAttempt.registrationId,
+            studentName: examAttempt.studentName,
+            experimentNumber: expNum,
+            subject: examAttempt.subject,
             components: formattedComponents,
             issuedBy: staffUser,
-            notes: notes || 'Verified pre-lab test pass score and handed over components.'
+            notes: notes || 'Verified individual pre-lab test pass score and handed over components.'
         });
         await issue.save();
 
-        // 5. Update or Create Lab Session
+        // Update or Create Lab Session
         const session = new LabSession({
             sessionId: issue.sessionId,
-            groupId: group.groupId,
-            groupName: group.groupName,
-            studentNames: group.members.map(m => m.name),
-            experimentNumber: group.experimentNumber,
-            subject: group.subject,
+            studentUsername: examAttempt.studentUsername,
+            registrationId: examAttempt.registrationId,
+            studentNames: [examAttempt.studentName],
+            experimentNumber: expNum,
+            subject: examAttempt.subject,
             startTime: new Date(),
             expectedDurationMinutes: 120,
             status: 'Components Issued',
@@ -1080,28 +1027,17 @@ router.post('/issues', async (req, res) => {
             issuedBy: staffUser,
             issueTime: new Date(),
             history: [
-                { timestamp: new Date(), status: 'Test Passed', notes: `Score: ${group.testScore}/${group.testMaxScore}`, actor: 'System' },
+                { timestamp: new Date(), status: 'Test Passed', notes: `Score: ${examAttempt.score}/${examAttempt.totalMarks}`, actor: 'System' },
                 { timestamp: new Date(), status: 'Components Issued', notes: `Handover recorded (${issue.issueId})`, actor: staffUser }
             ]
         });
         await session.save();
 
-        // 6. Update Group status
-        group.status = 'Components Issued';
-        group.assignedComponents = formattedComponents.map(c => ({
-            componentName: c.name,
-            partNumber: c.partNumber,
-            quantity: c.issuedQty,
-            issued: true
-        }));
-        group.sessionStartTime = new Date();
-        await group.save();
-
-        await logAudit('Component Handover', 'Component Issue', staffUser, `Issued components to ${group.groupId} for ${group.experimentNumber} (${issue.issueId})`);
+        await logAudit('Component Issuance', 'Component Issue', staffUser, `Issued components to student ${studentId} for ${expNum} (${issue.issueId})`);
 
         res.status(201).json({
             success: true,
-            message: `Components successfully handed over to ${group.groupName}!`,
+            message: `Components successfully handed over to ${examAttempt.studentName}!`,
             data: { issue, session }
         });
     } catch (error) {
@@ -1161,9 +1097,6 @@ router.patch('/sessions/:id/status', async (req, res) => {
         }
 
         await session.save();
-
-        // Sync with student group
-        await StudentGroup.updateOne({ groupId: session.groupId }, { status });
 
         await logAudit('Update Session Status', 'Lab Sessions', staffUser, `${session.sessionId} marked as ${status}`);
 
@@ -1272,12 +1205,6 @@ router.post('/returns', async (req, res) => {
         });
         await session.save();
 
-        // Update student group
-        await StudentGroup.updateOne({ groupId: session.groupId }, {
-            status: 'Completed',
-            sessionEndTime: new Date()
-        });
-
         await logAudit('Component Return Inspection', 'Component Return', staffUser, `Processed return for ${session.groupId} (${returnRecord.returnId})`);
 
         res.status(201).json({
@@ -1307,12 +1234,12 @@ router.get('/reports', async (req, res) => {
         }
 
         if (type === 'test-performance') {
-            const performance = await StudentGroup.aggregate([
+            const performance = await ExamAttempt.aggregate([
                 { $group: {
                     _id: '$subject',
-                    totalGroups: { $sum: 1 },
-                    passedGroups: { $sum: { $cond: [{ $eq: ['$testStatus', 'Passed'] }, 1, 0] } },
-                    avgScore: { $avg: '$testScore' }
+                    totalAttempts: { $sum: 1 },
+                    passedAttempts: { $sum: { $cond: ['$passed', 1, 0] } },
+                    avgScore: { $avg: '$score' }
                 }}
             ]);
             return res.json({ success: true, data: performance });
@@ -1378,12 +1305,12 @@ router.get('/reports/export-csv', async (req, res) => {
             });
             fileName = `Lab_Sessions_Report_${new Date().toISOString().slice(0,10)}.csv`;
         } else {
-            const groups = await StudentGroup.find().lean();
-            csvContent = 'Group ID,Group Name,Subject,Experiment,Status,Test Status,Test Score\n';
-            groups.forEach(g => {
-                csvContent += `"${g.groupId}","${g.groupName}","${g.subject}","${g.experimentNumber}","${g.status}","${g.testStatus}",${g.testScore}\n`;
+            const students = await StudentUser.find().select('-password').lean();
+            csvContent = 'Registration ID,Name,Department,Year,Email,Status\n';
+            students.forEach(s => {
+                csvContent += `"${s.registrationId || ''}","${s.name || ''}","${s.department || ''}","${s.year || ''}","${s.email || ''}","${s.status || 'Active'}"\n`;
             });
-            fileName = `Student_Groups_Report_${new Date().toISOString().slice(0,10)}.csv`;
+            fileName = `Students_Report_${new Date().toISOString().slice(0,10)}.csv`;
         }
 
         res.setHeader('Content-Type', 'text/csv');
@@ -1544,24 +1471,40 @@ async function ensureDefaultHODSchedules() {
     }
 }
 
+async function getDepartmentProfile() {
+    let profile = await DepartmentProfile.findOne();
+    if (!profile) {
+        profile = await DepartmentProfile.create({
+            departmentName: 'Department of Electrical & Computer Engineering',
+            hodName: 'Admin (HOD)',
+            academicYear: 'Academic Year 2026-2027 (Semester V)',
+            announcement: 'All staff members are instructed to complete component handovers by the target deadline.',
+            lastUpdatedBy: 'admin'
+        });
+    }
+    return profile;
+}
+
 // GET HOD Overview & Power BI Metrics
 router.get('/hod/overview', async (req, res) => {
     try {
         await ensureDefaultHODSchedules();
 
         const [
+            profile,
             schedules,
             totalExps,
             totalManuals,
-            totalGroups,
+            totalStudents,
             totalSessions,
             totalComponents,
             examStats
         ] = await Promise.all([
+            getDepartmentProfile(),
             DepartmentSchedule.find().sort({ subject: 1 }).lean(),
             Experiment.countDocuments({ isActive: true }),
             LabManual.countDocuments({ isPublished: true }),
-            StudentGroup.countDocuments(),
+            StudentUser.countDocuments({ role: 'student' }),
             LabSession.countDocuments(),
             Component.find().lean(),
             ExamAttempt.aggregate([
@@ -1588,15 +1531,18 @@ router.get('/hod/overview', async (req, res) => {
         res.json({
             success: true,
             data: {
-                departmentName: 'Department of Electrical & Computer Engineering',
-                hodName: 'HOD OF DEP',
+                departmentName: profile.departmentName || 'Department of Electrical & Computer Engineering',
+                hodName: profile.hodName || 'Admin (HOD)',
+                academicYear: profile.academicYear || 'Academic Year 2026-2027',
+                announcement: profile.announcement || '',
+                lastUpdatedBy: profile.lastUpdatedBy || 'admin',
                 summary: {
                     totalSubjects: schedules.length,
                     totalTargetExperiments: totalTargetExps,
                     totalCompletedExperiments: totalFinishedExps,
                     overallCompletionRate,
                     totalLabManuals: totalManuals,
-                    totalStudentGroups: totalGroups,
+                    totalStudents,
                     totalLabSessions: totalSessions,
                     totalComponentsStock: totalStock,
                     issuedComponents: issuedStock,
@@ -1609,6 +1555,42 @@ router.get('/hod/overview', async (req, res) => {
     } catch (err) {
         console.error('HOD Overview error:', err);
         res.status(500).json({ success: false, message: 'Failed to fetch HOD overview metrics' });
+    }
+});
+
+// GET Department Profile Settings
+router.get('/hod/profile', requireStaff, async (req, res) => {
+    try {
+        const profile = await getDepartmentProfile();
+        res.json({ success: true, data: profile });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to fetch department profile' });
+    }
+});
+
+// UPDATE Department Profile Settings by Admin (HOD)
+router.put('/hod/profile', requireStaff, async (req, res) => {
+    try {
+        const { departmentName, hodName, academicYear, announcement } = req.body;
+        const updater = (req.staffUser && req.staffUser.username) || req.headers['x-staff-user'] || 'admin';
+
+        let profile = await DepartmentProfile.findOne();
+        if (!profile) {
+            profile = new DepartmentProfile({});
+        }
+
+        if (departmentName) profile.departmentName = departmentName.trim();
+        if (hodName) profile.hodName = hodName.trim();
+        if (academicYear) profile.academicYear = academicYear.trim();
+        if (announcement !== undefined) profile.announcement = announcement.trim();
+        profile.lastUpdatedBy = updater;
+
+        await profile.save();
+        await logAudit('UPDATE_DEPARTMENT_PROFILE', 'HOD Panel', updater, `Admin updated department settings: ${profile.departmentName} (HOD: ${profile.hodName})`);
+
+        res.json({ success: true, message: 'Department settings updated successfully in MongoDB', data: profile });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message || 'Failed to update department profile' });
     }
 });
 
@@ -1642,6 +1624,8 @@ router.post('/hod/schedules', async (req, res) => {
             return res.status(400).json({ success: false, message: 'Subject, Component Deadline, and Student Completion Deadline are required' });
         }
 
+        const updater = (req.staffUser && req.staffUser.username) || req.headers['x-staff-user'] || 'admin';
+
         const newSchedule = new DepartmentSchedule({
             subject: subject.trim(),
             staffInCharge: staffInCharge || 'Assigned Staff',
@@ -1652,11 +1636,11 @@ router.post('/hod/schedules', async (req, res) => {
             batchName: batchName || 'Standard Batch',
             status: status || 'In Progress',
             notes: notes || '',
-            lastUpdatedBy: 'HOD OF DEP'
+            lastUpdatedBy: updater
         });
 
         await newSchedule.save();
-        await logAudit('CREATE_HOD_SCHEDULE', 'HOD Panel', 'HOD OF DEP', `Created timeline for ${subject}`);
+        await logAudit('CREATE_HOD_SCHEDULE', 'HOD Panel', updater, `Admin created timeline for ${subject}`);
 
         res.status(201).json({ success: true, message: 'Department schedule created successfully', data: newSchedule });
     } catch (err) {
@@ -1669,6 +1653,7 @@ router.put('/hod/schedules/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const updates = req.body;
+        const updater = (req.staffUser && req.staffUser.username) || req.headers['x-staff-user'] || 'admin';
 
         if (updates.componentIssueDeadline) {
             updates.componentIssueDeadline = new Date(updates.componentIssueDeadline);
@@ -1682,14 +1667,14 @@ router.put('/hod/schedules/:id', async (req, res) => {
         if (updates.totalExperiments !== undefined) {
             updates.totalExperiments = Number(updates.totalExperiments);
         }
-        updates.lastUpdatedBy = 'HOD OF DEP';
+        updates.lastUpdatedBy = updater;
 
         const updated = await DepartmentSchedule.findByIdAndUpdate(id, { $set: updates }, { new: true });
         if (!updated) {
             return res.status(404).json({ success: false, message: 'Schedule record not found' });
         }
 
-        await logAudit('UPDATE_HOD_SCHEDULE', 'HOD Panel', 'HOD OF DEP', `Updated progress for ${updated.subject}: ${updated.completedExperiments}/${updated.totalExperiments} finished`);
+        await logAudit('UPDATE_HOD_SCHEDULE', 'HOD Panel', updater, `Admin updated progress for ${updated.subject}: ${updated.completedExperiments}/${updated.totalExperiments} finished`);
 
         res.json({ success: true, message: 'Schedule updated successfully', data: updated });
     } catch (err) {
@@ -1701,9 +1686,10 @@ router.put('/hod/schedules/:id', async (req, res) => {
 router.delete('/hod/schedules/:id', async (req, res) => {
     try {
         const { id } = req.params;
+        const updater = (req.staffUser && req.staffUser.username) || req.headers['x-staff-user'] || 'admin';
         await DepartmentSchedule.findByIdAndDelete(id);
-        await logAudit('DELETE_HOD_SCHEDULE', 'HOD Panel', 'HOD OF DEP', `Deleted schedule ID: ${id}`);
-        res.json({ success: true, message: 'Schedule deleted successfully' });
+        await logAudit('DELETE_HOD_SCHEDULE', 'HOD Panel', updater, `Admin deleted schedule ID: ${id}`);
+        res.json({ success: true, message: 'Schedule deleted successfully from MongoDB' });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Failed to delete schedule' });
     }

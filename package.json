@@ -5,7 +5,7 @@
   "main": "script.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch server.js",
+    "dev": "node --watch --watch-path=backend --watch-path=frontend server.js",
     "install:docling": "pip install -r requirements.txt",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -25,6 +25,13 @@
     "mongoose": "^9.11.2",
     "multer": "^2.4.0",
     "pdf-parse": "^2.4.5",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
     "tailwind-merge": "^3.7.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "typescript": "^7.0.2"
   }
 }

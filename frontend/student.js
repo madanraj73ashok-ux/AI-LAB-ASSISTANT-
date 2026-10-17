@@ -1,7 +1,7 @@
 /* ====================================================================
    Student Portal - AI Laboratory Management System
    Full Frontend Engine: Auth, Dashboard, Experiments, Timed Exam,
-   AI Anti-Cheating Monitoring, Team Registration & Lab History
+   AI Anti-Cheating Monitoring & Individual Lab History
    ==================================================================== */
 
 const API_BASE = 'http://localhost:5000/api/student';
@@ -20,8 +20,7 @@ const state = {
     cameraMonitoringInterval: null,
     examAnswers: {}, // { questionIndex: selectedOptionIndex }
     currentQuestionIndex: 0,
-    examWarningCount: 0,
-    selectedPartner: null
+    examWarningCount: 0
 };
 
 // ==========================================
@@ -135,7 +134,6 @@ window.switchTab = function switchTab(tabName) {
     if (tabName === 'dashboard') loadDashboardOverview();
     if (tabName === 'experiments') loadSubjects();
     if (tabName === 'tests') loadMyTests();
-    if (tabName === 'team') loadTeamView();
     if (tabName === 'components') loadComponentsView();
     if (tabName === 'history') loadLabHistory();
     if (tabName === 'profile') loadStudentProfile();
@@ -167,11 +165,11 @@ async function loadStudentProfile() {
         const pAttempted = document.getElementById('pAttempted');
         const pPassed = document.getElementById('pPassed');
         const pFailed = document.getElementById('pFailed');
-        const pTeams = document.getElementById('pTeams');
+        const pUnlocked = document.getElementById('pUnlocked');
         if (pAttempted) pAttempted.textContent = s.experimentsAttempted || 0;
         if (pPassed) pPassed.textContent = s.experimentsPassed || 0;
         if (pFailed) pFailed.textContent = s.experimentsFailed || 0;
-        if (pTeams) pTeams.textContent = s.teamsRegistered || 0;
+        if (pUnlocked) pUnlocked.textContent = s.unlockedPracticals || 0;
     }
 }
 
@@ -213,11 +211,11 @@ async function loadDashboardOverview() {
     const valExpRemaining = document.getElementById('valExpRemaining');
     if (valExpRemaining) valExpRemaining.textContent = d.experimentsRemaining || 0;
 
-    // 5. Team Registration Status
-    const valTeamStatus = document.getElementById('valTeamStatus');
-    if (valTeamStatus) {
-        valTeamStatus.textContent = d.teamRegistrationStatus || 'Not Registered';
-        valTeamStatus.title = d.teamRegistrationStatus || '';
+    // 5. Practical Access Status
+    const valPracticalStatus = document.getElementById('valPracticalStatus') || document.getElementById('valTeamStatus');
+    if (valPracticalStatus) {
+        valPracticalStatus.textContent = d.practicalStatus || (d.experimentsPassed > 0 ? 'Unlocked ✓' : 'Assessment Required');
+        valPracticalStatus.title = valPracticalStatus.textContent;
     }
 
     // 6. Current Lab Session Status
@@ -233,40 +231,34 @@ async function loadDashboardOverview() {
         }
     }
 
-    // 7. Team Finished Experiments & Side Tabular Column
+    // 7. Finished Experiments & Side Tabular Column
     const tabularFinishedCount = document.getElementById('tabularFinishedCount');
     const metricFinishedRatio = document.getElementById('metricFinishedRatio');
-    const sideTeamNameSub = document.getElementById('sideTeamNameSub');
-    const metricTeamGroup = document.getElementById('metricTeamGroup');
-    const metricTeamStatusDesc = document.getElementById('metricTeamStatusDesc');
+    const sidePracticalNameSub = document.getElementById('sidePracticalNameSub');
+    const metricPracticalSession = document.getElementById('metricPracticalSession');
+    const metricPracticalStatusDesc = document.getElementById('metricPracticalStatusDesc');
 
-    const finishedCount = d.teamFinishedCount || (d.teamFinishedExperiments ? d.teamFinishedExperiments.length : 0);
+    const finishedCount = d.finishedCount || d.experimentsPassed || 0;
     if (tabularFinishedCount) tabularFinishedCount.textContent = finishedCount;
     if (metricFinishedRatio) metricFinishedRatio.textContent = `${finishedCount}/${d.totalExperiments || 10}`;
 
-    if (d.latestTeam) {
-        if (sideTeamNameSub) sideTeamNameSub.textContent = `${d.latestTeam.groupName} • ${d.latestTeam.members.length} Members`;
-        if (metricTeamGroup) metricTeamGroup.textContent = `${d.latestTeam.groupName} [${d.latestTeam.experimentNumber}]`;
-        if (metricTeamStatusDesc) metricTeamStatusDesc.textContent = `Status: ${d.currentLabSessionStatus} • Verified by Staff`;
-    } else {
-        if (sideTeamNameSub) sideTeamNameSub.textContent = 'Pass pre-lab to unlock lab team registration';
-        if (metricTeamGroup) metricTeamGroup.textContent = 'Team Practical Progress';
-        if (metricTeamStatusDesc) metricTeamStatusDesc.textContent = 'No active team registered yet';
-    }
+    if (sidePracticalNameSub) sidePracticalNameSub.textContent = `Completed: ${finishedCount} / ${d.totalExperiments || 10}`;
+    if (metricPracticalSession) metricPracticalSession.textContent = 'Practical Lab Session';
+    if (metricPracticalStatusDesc) metricPracticalStatusDesc.textContent = `Status: ${d.currentLabSessionStatus || 'Individual Access'}`;
 
-    // Render Tab 1: Team Finished Experiments Table
-    const teamFinishedBody = document.getElementById('teamFinishedTableBody');
-    if (teamFinishedBody) {
-        if (!d.teamFinishedExperiments || d.teamFinishedExperiments.length === 0) {
-            teamFinishedBody.innerHTML = `
+    // Render Tab 1: Finished Experiments Table
+    const finishedBody = document.getElementById('finishedTableBody') || document.getElementById('teamFinishedTableBody');
+    if (finishedBody) {
+        if (!d.finishedExperiments || d.finishedExperiments.length === 0) {
+            finishedBody.innerHTML = `
                 <tr>
                     <td colspan="4" class="table-empty-row">
-                        No team completed experiments yet. Select a subject below and take the pre-lab assessment.
+                        No completed experiments yet. Select a subject below and take the pre-lab assessment.
                     </td>
                 </tr>
             `;
         } else {
-            teamFinishedBody.innerHTML = d.teamFinishedExperiments.map(f => `
+            finishedBody.innerHTML = d.finishedExperiments.map(f => `
                 <tr>
                     <td><strong style="color: #c4b5fd;">${escapeHtml(f.experimentNumber)}</strong></td>
                     <td>
@@ -315,7 +307,7 @@ async function loadDashboardOverview() {
     }
 }
 
-// Switch between Team Finished Experiments and Live Updates in Side Tabular Column
+// Switch between Finished Experiments and Live Updates in Side Tabular Column
 window.switchTabularTab = function(tabName) {
     const tabBtnFinished = document.getElementById('tabBtnFinished');
     const tabBtnUpdates = document.getElementById('tabBtnUpdates');
@@ -377,7 +369,7 @@ async function loadSubjects() {
 
                         <div class="course-progress-box">
                             <div class="progress-labels-row">
-                                <span class="progress-lbl">Team Progress:</span>
+                                <span class="progress-lbl">My Progress:</span>
                                 <span class="progress-ratio">${subj.passedExperiments} / ${subj.availableExperiments} Completed</span>
                             </div>
                             <div class="progress-track-mini">
@@ -468,7 +460,6 @@ async function loadExperimentsForSubject(subjectName) {
         if (exp.studentStatus === 'Test In Progress') badgeClass = 'test-in-progress';
         if (exp.studentStatus === 'Passed') badgeClass = 'passed';
         if (exp.studentStatus.includes('Failed')) badgeClass = 'failed';
-        if (exp.studentStatus === 'Awaiting Team Registration') badgeClass = 'awaiting-team';
         if (exp.studentStatus === 'Ready for Components' || exp.studentStatus === 'In Lab Session') badgeClass = 'ready-components';
         if (exp.studentStatus === 'Completed') badgeClass = 'completed';
 
@@ -477,8 +468,8 @@ async function loadExperimentsForSubject(subjectName) {
         if (exp.canAttempt) {
             actionBtnText = 'Open Experiment →';
             actionBtnClass = 'primary-btn';
-        } else if (exp.studentStatus === 'Awaiting Team Registration') {
-            actionBtnText = 'Register Team';
+        } else if (exp.studentStatus === 'Ready for Components' || exp.studentStatus === 'Passed') {
+            actionBtnText = 'View Components →';
             actionBtnClass = 'primary-btn';
         }
 
@@ -572,7 +563,7 @@ window.openExperimentIntroduction = async function(expNumber) {
             if (introStatusNotice) {
                 introStatusNotice.innerHTML = `
                     <div style="background: var(--success-bg); border: 1px solid var(--success-border); color: #10b981; padding: 12px; border-radius: 8px; margin-top: 1rem; font-size: 0.9rem;">
-                        ✓ You previously completed this assessment! You can re-take it now to test your knowledge or proceed to Team Registration.
+                        ✓ You previously completed this assessment! You can re-take it now to test your knowledge or proceed to Component Requirements.
                     </div>
                 `;
             }
@@ -857,9 +848,9 @@ function renderExamResult(data) {
 
     if (nextActionBtn) {
         if (data.passed) {
-            nextActionBtn.textContent = 'Register Lab Team →';
+            nextActionBtn.textContent = 'View Components →';
             nextActionBtn.onclick = () => {
-                switchTab('team');
+                switchTab('components');
             };
         } else {
             nextActionBtn.textContent = 'Return to Experiments';
@@ -1487,240 +1478,6 @@ window.simulateEyesDownWarning = function() {
     }, 150);
 };
 
-// ==========================================
-// 9. LAB TEAM REGISTRATION (EXACTLY 2 MEMBERS - DUAL PASS ENFORCEMENT)
-// ==========================================
-let currentDirectoryStudents = [];
-
-async function loadTeamView() {
-    const leaderNameEl = document.getElementById('member1DisplayName');
-    const leaderRegEl = document.getElementById('member1DisplayReg');
-    const member1PassBadge = document.getElementById('member1PassBadge');
-
-    if (leaderNameEl) leaderNameEl.textContent = state.profile?.fullName || state.username || 'Student';
-    if (leaderRegEl) leaderRegEl.textContent = state.profile?.registrationId || `STU-${(state.username || '').toUpperCase()}`;
-    if (member1PassBadge) {
-        member1PassBadge.textContent = 'Passed ✓';
-        member1PassBadge.className = 'member-pass-badge passed';
-    }
-
-    // Populate Experiment Dropdown with passed experiments
-    const expSelect = document.getElementById('teamExpSelect');
-    if (expSelect) {
-        const res = await studentFetch('/experiments');
-        if (res.success && res.data) {
-            const passedExperiments = res.data.filter(e => e.studentStatus === 'Passed' || e.studentStatus === 'Awaiting Team Registration');
-            if (passedExperiments.length === 0) {
-                expSelect.innerHTML = `<option value="">-- No passed experiments available yet --</option>`;
-            } else {
-                expSelect.innerHTML = passedExperiments.map(e => `
-                    <option value="${escapeHtml(e.experimentNumber)}" ${state.selectedExperiment === e.experimentNumber ? 'selected' : ''}>
-                        ${escapeHtml(e.experimentNumber)} - ${escapeHtml(e.title)}
-                    </option>
-                `).join('');
-            }
-        }
-    }
-
-    await onTeamExpChange();
-}
-
-window.onTeamExpChange = async function() {
-    const expSelect = document.getElementById('teamExpSelect');
-    const expNum = expSelect ? expSelect.value : (state.selectedExperiment || 'EXP-01');
-
-    if (!expNum) return;
-
-    // Fetch directory with assessment pass status for this specific experiment
-    const dirRes = await studentFetch(`/directory?experimentNumber=${encodeURIComponent(expNum)}`);
-    const memberSelect = document.getElementById('availableMemberSelect');
-
-    if (memberSelect && dirRes.success && dirRes.data) {
-        currentDirectoryStudents = dirRes.data;
-        memberSelect.innerHTML = `<option value="">-- Choose 1 Lab Partner --</option>` +
-            dirRes.data.map(s => {
-                const passLabel = s.passedAssessment ? '• [Assessment Passed ✓]' : '• [Assessment Pending]';
-                return `<option value="${escapeHtml(s.username)}" data-passed="${s.passedAssessment ? '1' : '0'}">
-                    ${escapeHtml(s.fullName || s.username)} (${escapeHtml(s.registrationId)}) ${passLabel}
-                </option>`;
-            }).join('');
-    }
-
-    onPartnerSelectChange();
-    await checkActiveTeamForExp(expNum);
-};
-
-window.onPartnerSelectChange = function() {
-    const memberSelect = document.getElementById('availableMemberSelect');
-    const badge = document.getElementById('member2PassBadge');
-    const hint = document.getElementById('partnerPassHint');
-    const banner = document.getElementById('teamPracticalStatusBanner');
-    const bannerIcon = document.getElementById('bannerStatusIcon');
-    const bannerTitle = document.getElementById('bannerStatusTitle');
-    const bannerDesc = document.getElementById('bannerStatusDesc');
-    const submitBtn = document.getElementById('teamRegisterSubmitBtn');
-
-    if (!memberSelect) return;
-
-    const selectedUsername = memberSelect.value;
-    if (!selectedUsername) {
-        if (badge) {
-            badge.textContent = 'Select Partner';
-            badge.className = 'member-pass-badge pending';
-        }
-        if (hint) {
-            hint.textContent = 'Select a student from the registered class list';
-            hint.style.color = 'var(--text-muted)';
-        }
-        if (banner) {
-            banner.className = 'team-practical-banner locked';
-            if (bannerIcon) bannerIcon.textContent = '🔒';
-            if (bannerTitle) {
-                bannerTitle.textContent = 'Practical Access: Verification Required';
-                bannerTitle.className = 'banner-title locked';
-            }
-            if (bannerDesc) bannerDesc.textContent = 'One team will pass only when both 2 members of the team pass the assessment. When the two members pass, practical lab work is allowed.';
-        }
-        if (submitBtn) submitBtn.textContent = 'Register 2-Member Team →';
-        return;
-    }
-
-    const selectedOpt = memberSelect.options[memberSelect.selectedIndex];
-    const isPassed = selectedOpt && selectedOpt.getAttribute('data-passed') === '1';
-
-    if (badge) {
-        badge.textContent = isPassed ? 'Passed ✓' : 'Assessment Pending';
-        badge.className = `member-pass-badge ${isPassed ? 'passed' : 'pending'}`;
-    }
-
-    if (hint) {
-        hint.textContent = isPassed
-            ? '✅ Partner has passed the assessment! Both members are ready.'
-            : '⚠️ Partner has not passed the assessment yet. Practical will unlock when both members pass.';
-        hint.style.color = isPassed ? '#10b981' : '#f59e0b';
-    }
-
-    if (banner) {
-        if (isPassed) {
-            banner.className = 'team-practical-banner allowed';
-            if (bannerIcon) bannerIcon.textContent = '🟢';
-            if (bannerTitle) {
-                bannerTitle.textContent = 'Practical Access: ALLOWED FOR PRACTICAL ✓';
-                bannerTitle.className = 'banner-title allowed';
-            }
-            if (bannerDesc) bannerDesc.textContent = 'Both 2 members have passed the assessment! Submitting registration will immediately allow practical lab work and hardware handover.';
-            if (submitBtn) submitBtn.textContent = 'Register 2-Member Team (Allowed for Practical) →';
-        } else {
-            banner.className = 'team-practical-banner locked';
-            if (bannerIcon) bannerIcon.textContent = '⏳';
-            if (bannerTitle) {
-                bannerTitle.textContent = 'Practical Access: PENDING 2ND MEMBER PASS';
-                bannerTitle.className = 'banner-title locked';
-            }
-            if (bannerDesc) bannerDesc.textContent = 'One team will pass only when both members pass. Practical session is locked until your partner completes and passes the pre-lab assessment.';
-            if (submitBtn) submitBtn.textContent = 'Register Team (Practical Locked Until Partner Passes) →';
-        }
-    }
-};
-
-async function checkActiveTeamForExp(expNum) {
-    const container = document.getElementById('activeTeamCardContainer');
-    if (!container) return;
-
-    const res = await studentFetch('/dashboard-overview');
-    if (!res.success || !res.data) return;
-
-    const activeTeam = (res.data.latestTeam && res.data.latestTeam.experimentNumber === expNum)
-        ? res.data.latestTeam
-        : null;
-
-    if (activeTeam) {
-        const isDualPassed = activeTeam.allowedPractical || activeTeam.testStatus === 'Passed';
-        container.style.display = 'block';
-        container.innerHTML = `
-            <div class="registered-team-summary-card">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.8rem;">
-                    <div>
-                        <span style="font-size: 0.76rem; color: var(--purple-light); font-weight: 700; text-transform: uppercase;">Existing Registered Team</span>
-                        <h3 style="font-size: 1.15rem; color: var(--text-white); margin-top: 2px;">${escapeHtml(activeTeam.groupName)}</h3>
-                    </div>
-                    <span class="badge-status ${isDualPassed ? 'passed' : 'warning'}">
-                        ${isDualPassed ? 'Allowed for Practical ✓' : 'Practical Locked'}
-                    </span>
-                </div>
-                <p style="font-size: 0.83rem; color: var(--text-muted); margin-bottom: 1rem;">
-                    Experiment: <strong>${escapeHtml(activeTeam.experimentNumber)}</strong> • Subject: <strong>${escapeHtml(activeTeam.subject || 'Lab')}</strong>
-                </p>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1rem;">
-                    <div style="background: var(--dark-card); padding: 10px; border-radius: 8px;">
-                        <span style="font-size: 0.72rem; color: var(--text-muted);">Member 1</span>
-                        <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-white);">
-                            ${escapeHtml(activeTeam.members?.[0]?.name || activeTeam.leaderUsername)}
-                        </div>
-                        <span style="font-size: 0.72rem; color: #10b981;">Passed ✓</span>
-                    </div>
-                    <div style="background: var(--dark-card); padding: 10px; border-radius: 8px;">
-                        <span style="font-size: 0.72rem; color: var(--text-muted);">Member 2</span>
-                        <div style="font-weight: 700; font-size: 0.88rem; color: var(--text-white);">
-                            ${escapeHtml(activeTeam.members?.[1]?.name || activeTeam.partnerUsername || 'Partner')}
-                        </div>
-                        <span style="font-size: 0.72rem; color: ${isDualPassed ? '#10b981' : '#f59e0b'};">
-                            ${isDualPassed ? 'Passed ✓' : 'Assessment Pending'}
-                        </span>
-                    </div>
-                </div>
-                <div style="display: flex; justify-content: flex-end;">
-                    <button type="button" class="primary-btn" onclick="state.selectedExperiment='${escapeHtml(expNum)}'; switchTab('components');">
-                        View Hardware Components & Workbench →
-                    </button>
-                </div>
-            </div>
-        `;
-    } else {
-        container.style.display = 'none';
-        container.innerHTML = '';
-    }
-}
-
-window.submitTeamRegistration = async function(e) {
-    if (e) e.preventDefault();
-
-    const teamName = document.getElementById('teamNameInput')?.value.trim();
-    const experimentNumber = document.getElementById('teamExpSelect')?.value;
-    const partnerUsername = document.getElementById('availableMemberSelect')?.value;
-
-    if (!teamName || !experimentNumber) {
-        showToast('Please enter a team name and select an experiment.', 'warning');
-        return;
-    }
-
-    if (!partnerUsername) {
-        showToast('A lab team consists of exactly 2 members. Please choose your 1 lab partner from the list.', 'warning');
-        return;
-    }
-
-    const res = await studentFetch('/team/register', {
-        method: 'POST',
-        body: JSON.stringify({
-            experimentNumber,
-            teamName,
-            partnerUsername
-        })
-    });
-
-    if (!res.success) {
-        showToast(res.message || 'Failed to register team.', 'error');
-        return;
-    }
-
-    showToast(res.message, 'success');
-    state.selectedExperiment = experimentNumber;
-
-    // Redirect to component requirements view for this experiment
-    switchTab('components');
-    await loadComponentsView();
-    loadDashboardOverview();
-};
 
 // ==========================================
 // 10. COMPONENT REQUIREMENTS VIEW
@@ -1743,33 +1500,32 @@ async function loadComponentsView() {
 
     const d = res.data;
     if (issueStatusTag) {
-        issueStatusTag.textContent = d.issueStatus || 'Awaiting Staff Issue';
-        issueStatusTag.className = `badge-status ${d.issueStatus === 'Components Issued' ? 'passed' : (d.allowedPractical ? 'passed' : 'awaiting-team')}`;
+        issueStatusTag.textContent = d.issueStatus || (d.allowedPractical ? 'Authorized for Components' : 'Assessment Required');
+        issueStatusTag.className = `badge-status ${d.issueStatus === 'Components Issued' ? 'passed' : (d.allowedPractical ? 'passed' : 'failed')}`;
     }
 
     // Practical Allowance Banner
     let bannerHtml = '';
     if (!d.allowedPractical) {
         bannerHtml = `
-            <div class="team-practical-banner locked" style="grid-column: 1/-1; margin-bottom: 1.5rem;">
+            <div class="practical-access-banner locked" style="grid-column: 1/-1; margin-bottom: 1.5rem;">
                 <div class="banner-status-icon">🔒</div>
                 <div>
                     <div class="banner-title locked">Practical Session & Hardware Issuance Locked</div>
                     <div class="banner-sub">
-                        One team will pass only when <strong>both 2 members</strong> of the team pass the assessment. When the two members pass, practical lab work is allowed.
-                        ${d.teamName ? `<br>Team <strong>${escapeHtml(d.teamName)}</strong>: Member 1 (${d.member1Passed ? 'Passed ✓' : 'Pending'}), Member 2 (${d.member2Passed ? 'Passed ✓' : 'Pending'}).` : ''}
+                        Pass the pre-lab assessment for this experiment to unlock the practical session and hardware issuance.
                     </div>
                 </div>
             </div>
         `;
     } else {
         bannerHtml = `
-            <div class="team-practical-banner allowed" style="grid-column: 1/-1; margin-bottom: 1.5rem;">
+            <div class="practical-access-banner allowed" style="grid-column: 1/-1; margin-bottom: 1.5rem;">
                 <div class="banner-status-icon">✅</div>
                 <div>
                     <div class="banner-title allowed">Practical Session & Components Allowed</div>
                     <div class="banner-sub">
-                        Both 2 members of team <strong>${escapeHtml(d.teamName || 'Your Team')}</strong> have passed the assessment! You are authorized for practical hardware allocation at the staff workbench.
+                        Pre-lab assessment passed! You are authorized for practical session & hardware component issuance at the workbench.
                     </div>
                 </div>
             </div>
@@ -1845,8 +1601,8 @@ async function loadLabHistory() {
                     <p class="h-val">${h.durationSeconds ? `${Math.floor(h.durationSeconds / 60)}m ${h.durationSeconds % 60}s` : 'N/A'}</p>
                 </div>
                 <div class="h-cell">
-                    <span class="h-lbl">Registered Team</span>
-                    <p class="h-val">${escapeHtml(h.teamName)}</p>
+                    <span class="h-lbl">Practical Access</span>
+                    <p class="h-val" style="color: ${h.passed ? '#10b981' : '#f59e0b'};">${h.passed ? 'Unlocked ✓' : 'Assessment Required'}</p>
                 </div>
                 <div class="h-cell">
                     <span class="h-lbl">Components Issued</span>

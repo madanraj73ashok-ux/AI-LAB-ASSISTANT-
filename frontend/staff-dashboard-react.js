@@ -13,7 +13,7 @@ const { useState, useEffect, useMemo, useRef } = React;
 const API_BASE = '/api/staff';
 
 function getAuthHeaders() {
-    const user = localStorage.getItem('username') || 'HOD OF DEP';
+    const user = localStorage.getItem('username') || 'admin';
     return {
         'Content-Type': 'application/json',
         'x-staff-user': user
@@ -46,6 +46,7 @@ function getDaysRemaining(targetDateStr) {
 // MAIN HOD CONTROL PANEL COMPONENT
 // ==========================================
 function HodDashboardApp() {
+    const currentUser = localStorage.getItem('username') || 'admin';
     const [overview, setOverview] = useState(null);
     const [schedules, setSchedules] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -57,6 +58,28 @@ function HodDashboardApp() {
     const [isSaving, setIsSaving] = useState(false);
     const [aiRunning, setAiRunning] = useState(false);
     const [aiResultModal, setAiResultModal] = useState(null);
+
+    // Department settings state (Admin editable)
+    const [departmentMeta, setDepartmentMeta] = useState({
+        departmentName: 'Department of Electrical & Computer Engineering',
+        hodName: 'Admin (HOD)',
+        academicYear: 'Academic Year 2026-2027 (Semester V)',
+        announcement: 'All staff members are instructed to complete component handovers by the target deadline.',
+        lastUpdatedBy: 'admin'
+    });
+    const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+    const [isAddScheduleModalOpen, setIsAddScheduleModalOpen] = useState(false);
+    const [newSchedule, setNewSchedule] = useState({
+        subject: '',
+        staffInCharge: 'Prof. Faculty Member',
+        batchName: 'Section General',
+        totalExperiments: 10,
+        completedExperiments: 0,
+        componentIssueDeadline: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+        studentCompletionDeadline: new Date(Date.now() + 21 * 86400000).toISOString().split('T')[0],
+        status: 'In Progress',
+        notes: ''
+    });
 
     // Sub-data for additional operational tabs
     const [experiments, setExperiments] = useState([]);
@@ -77,6 +100,15 @@ function HodDashboardApp() {
             if (json.success && json.data) {
                 setOverview(json.data.summary);
                 setSchedules(json.data.schedules || []);
+                if (json.data.departmentName) {
+                    setDepartmentMeta({
+                        departmentName: json.data.departmentName || 'Department of Electrical & Computer Engineering',
+                        hodName: json.data.hodName || 'Admin (HOD)',
+                        academicYear: json.data.academicYear || 'Academic Year 2026-2027',
+                        announcement: json.data.announcement || '',
+                        lastUpdatedBy: json.data.lastUpdatedBy || 'admin'
+                    });
+                }
             }
         } catch (err) {
             console.error('Failed to load HOD metrics:', err);
@@ -159,6 +191,99 @@ function HodDashboardApp() {
         } catch (e) {
             showToast('Failed to update progress', 'error');
         }
+    // Create New Schedule (Admin)
+    const handleCreateSchedule = async (e) => {
+        e.preventDefault();
+        if (!newSchedule.subject || !newSchedule.componentIssueDeadline || !newSchedule.studentCompletionDeadline) {
+            showToast('Please specify subject and both deadlines', 'error');
+            return;
+        }
+        try {
+            setIsSaving(true);
+            const res = await fetch(`${API_BASE}/hod/schedules`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(newSchedule)
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`Admin created schedule for "${newSchedule.subject}" in MongoDB!`, 'success');
+                setIsAddScheduleModalOpen(false);
+                setNewSchedule({
+                    subject: '',
+                    staffInCharge: 'Prof. Faculty Member',
+                    batchName: 'Section General',
+                    totalExperiments: 10,
+                    completedExperiments: 0,
+                    componentIssueDeadline: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
+                    studentCompletionDeadline: new Date(Date.now() + 21 * 86400000).toISOString().split('T')[0],
+                    status: 'In Progress',
+                    notes: ''
+                });
+                fetchData();
+            } else {
+                showToast(json.message || 'Failed to create schedule', 'error');
+            }
+        } catch (err) {
+            showToast('Error creating schedule in staff_portal', 'error');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Delete Schedule (Admin)
+    const handleDeleteSchedule = async (id, subject) => {
+        if (!window.confirm(`Are you sure you want to delete the schedule for "${subject}"? This removes it permanently from MongoDB.`)) {
+            return;
+        }
+        try {
+            const res = await fetch(`${API_BASE}/hod/schedules/${id}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`Deleted schedule "${subject}" from MongoDB`, 'success');
+                fetchData();
+            } else {
+                showToast(json.message || 'Failed to delete schedule', 'error');
+            }
+        } catch (e) {
+            showToast('Error deleting schedule from MongoDB', 'error');
+        }
+    };
+
+    // Save Department Settings (Admin)
+    const handleSaveDepartmentProfile = async (e) => {
+        e.preventDefault();
+        try {
+            setIsSaving(true);
+            const res = await fetch(`${API_BASE}/hod/profile`, {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(departmentMeta)
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast('Admin updated Department Settings in MongoDB!', 'success');
+                setIsProfileModalOpen(false);
+                fetchData();
+            } else {
+                showToast(json.message || 'Failed to update department profile', 'error');
+            }
+        } catch (err) {
+            showToast('Error saving department settings to staff_portal', 'error');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // Logout
+    const handleLogout = () => {
+        localStorage.removeItem('username');
+        localStorage.removeItem('role');
+        sessionStorage.removeItem('currentStaffUser');
+        window.location.href = 'index.html';
     };
 
     // Run AI Multi-Curriculum Department Analyzer & Auto-Map Schedules
@@ -354,11 +479,20 @@ function HodDashboardApp() {
 
                 {/* HOD User Profile Bottom Card */}
                 <div className="hod-user-card">
-                    <div className="user-avatar-podx">HOD</div>
-                    <div className="user-info-podx">
-                        <strong>HOD OF DEP</strong>
-                        <p>Executive Admin</p>
+                    <div className="user-avatar-podx">
+                        {currentUser === 'admin' ? 'AD' : currentUser.substring(0, 2).toUpperCase()}
                     </div>
+                    <div className="user-info-podx">
+                        <strong>{currentUser === 'admin' ? 'Admin (HOD)' : currentUser}</strong>
+                        <p>Executive Head of Dept</p>
+                    </div>
+                    <button 
+                        className="logout-icon-btn-podx" 
+                        onClick={handleLogout} 
+                        title="Sign Out to Login Portal"
+                    >
+                        ⎋
+                    </button>
                 </div>
             </aside>
 
@@ -367,8 +501,8 @@ function HodDashboardApp() {
                 {/* TOP NAVIGATION BAR */}
                 <header className="podx-topbar">
                     <div className="topbar-title-block">
-                        <h1>Executive Control Center</h1>
-                        <p>Verilent Sem V-Lab | Live MongoDB staff_portal Synchronization</p>
+                        <h1>{departmentMeta.departmentName}</h1>
+                        <p>{departmentMeta.academicYear} | Head of Dept: <strong>{departmentMeta.hodName}</strong> (Live MongoDB staff_portal)</p>
                     </div>
 
                     {/* Center Pill Search Bar */}
@@ -389,6 +523,16 @@ function HodDashboardApp() {
 
                     {/* Top Right Action Controls */}
                     <div className="topbar-actions">
+                        <button 
+                            className="circular-action-btn" 
+                            title="Department Settings (Admin / HOD)" 
+                            onClick={() => setIsProfileModalOpen(true)}
+                        >
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                                <circle cx="12" cy="12" r="3" />
+                                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                            </svg>
+                        </button>
                         <button className="circular-action-btn" title="Security & Permissions" onClick={() => showToast('Security protocols verified for HOD session', 'success')}>
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
                                 <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
@@ -724,6 +868,13 @@ function HodDashboardApp() {
                                     <p>Track how many experiments each staff member has finished, component distribution deadline, and student completion targets</p>
                                 </div>
                                 <div className="table-controls-podx">
+                                    <button 
+                                        className="add-schedule-btn-podx"
+                                        onClick={() => setIsAddScheduleModalOpen(true)}
+                                        title="Create and map new curriculum track in MongoDB"
+                                    >
+                                        + Add Subject Schedule
+                                    </button>
                                     <label style={{ fontSize: '0.82rem', color: 'var(--podx-text-muted)' }}>Filter Subject:</label>
                                     <select
                                         value={filterSubject}
@@ -819,12 +970,22 @@ function HodDashboardApp() {
                                                         </span>
                                                     </td>
                                                     <td>
-                                                        <button
-                                                            className="edit-schedule-btn-podx"
-                                                            onClick={() => setEditingSchedule({ ...s })}
-                                                        >
-                                                            ✏️ Edit &amp; Map
-                                                        </button>
+                                                        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                                                            <button
+                                                                className="edit-schedule-btn-podx"
+                                                                onClick={() => setEditingSchedule({ ...s })}
+                                                                title="Update schedule parameters and deadlines"
+                                                            >
+                                                                ✏️ Edit &amp; Map
+                                                            </button>
+                                                            <button
+                                                                className="delete-schedule-btn-podx"
+                                                                onClick={() => handleDeleteSchedule(s._id, s.subject)}
+                                                                title="Delete this schedule from MongoDB"
+                                                            >
+                                                                🗑️
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             );
@@ -1203,6 +1364,204 @@ function HodDashboardApp() {
                                 ✓ Close & View Mapped Dashboard
                             </button>
                         </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ADD NEW SCHEDULE MODAL (ADMIN / HOD) */}
+            {isAddScheduleModalOpen && (
+                <div className="hod-modal-overlay">
+                    <div className="hod-modal">
+                        <div className="modal-header">
+                            <div>
+                                <h3>+ Add New Curriculum Subject Schedule</h3>
+                                <p>Register a new subject track with milestone deadlines into MongoDB staff_portal</p>
+                            </div>
+                            <button className="close-btn" onClick={() => setIsAddScheduleModalOpen(false)}>✕</button>
+                        </div>
+
+                        <form onSubmit={handleCreateSchedule} className="modal-form">
+                            <div className="form-group">
+                                <label>Subject Title *</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Distributed Cloud Computing Lab"
+                                    value={newSchedule.subject}
+                                    onChange={(e) => setNewSchedule({ ...newSchedule, subject: e.target.value })}
+                                    required
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Staff In-Charge</label>
+                                    <input
+                                        type="text"
+                                        value={newSchedule.staffInCharge}
+                                        onChange={(e) => setNewSchedule({ ...newSchedule, staffInCharge: e.target.value })}
+                                        required
+                                        className="hod-input"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Student Batch</label>
+                                    <input
+                                        type="text"
+                                        value={newSchedule.batchName}
+                                        onChange={(e) => setNewSchedule({ ...newSchedule, batchName: e.target.value })}
+                                        className="hod-input"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Finished Experiments</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max={newSchedule.totalExperiments || 10}
+                                        value={newSchedule.completedExperiments}
+                                        onChange={(e) => setNewSchedule({ ...newSchedule, completedExperiments: parseInt(e.target.value) || 0 })}
+                                        className="hod-input"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Total Experiments</label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        value={newSchedule.totalExperiments || 10}
+                                        onChange={(e) => setNewSchedule({ ...newSchedule, totalExperiments: parseInt(e.target.value) || 10 })}
+                                        className="hod-input"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>📅 Component Handover Deadline *</label>
+                                    <input
+                                        type="date"
+                                        value={newSchedule.componentIssueDeadline}
+                                        onChange={(e) => setNewSchedule({ ...newSchedule, componentIssueDeadline: e.target.value })}
+                                        required
+                                        className="hod-input date-accent"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>🎯 Student Completion Deadline *</label>
+                                    <input
+                                        type="date"
+                                        value={newSchedule.studentCompletionDeadline}
+                                        onChange={(e) => setNewSchedule({ ...newSchedule, studentCompletionDeadline: e.target.value })}
+                                        required
+                                        className="hod-input date-accent"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Initial Status</label>
+                                <select
+                                    value={newSchedule.status}
+                                    onChange={(e) => setNewSchedule({ ...newSchedule, status: e.target.value })}
+                                    className="hod-select"
+                                >
+                                    <option value="On Track">On Track</option>
+                                    <option value="In Progress">In Progress</option>
+                                    <option value="Action Required">Action Required</option>
+                                    <option value="Completed">Completed</option>
+                                </select>
+                            </div>
+
+                            <div className="form-group">
+                                <label>HOD Directives / Notes</label>
+                                <textarea
+                                    rows="2"
+                                    value={newSchedule.notes}
+                                    onChange={(e) => setNewSchedule({ ...newSchedule, notes: e.target.value })}
+                                    placeholder="Department instructions or hardware notes..."
+                                    className="hod-textarea"
+                                ></textarea>
+                            </div>
+
+                            <div className="modal-actions">
+                                <button type="button" className="btn-cancel" onClick={() => setIsAddScheduleModalOpen(false)}>Cancel</button>
+                                <button type="submit" className="btn-save" disabled={isSaving}>
+                                    {isSaving ? 'Saving...' : '💾 Create in staff_portal'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* DEPARTMENT PROFILE / SETTINGS MODAL (ADMIN / HOD) */}
+            {isProfileModalOpen && (
+                <div className="hod-modal-overlay">
+                    <div className="hod-modal">
+                        <div className="modal-header">
+                            <div>
+                                <h3>⚙️ Department & HOD Executive Settings</h3>
+                                <p>Update department name, HOD administrator info, and department-wide announcements stored in MongoDB</p>
+                            </div>
+                            <button className="close-btn" onClick={() => setIsProfileModalOpen(false)}>✕</button>
+                        </div>
+
+                        <form onSubmit={handleSaveDepartmentProfile} className="modal-form">
+                            <div className="form-group">
+                                <label>Department Name</label>
+                                <input
+                                    type="text"
+                                    value={departmentMeta.departmentName}
+                                    onChange={(e) => setDepartmentMeta({ ...departmentMeta, departmentName: e.target.value })}
+                                    required
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>HOD / Administrator Name</label>
+                                    <input
+                                        type="text"
+                                        value={departmentMeta.hodName}
+                                        onChange={(e) => setDepartmentMeta({ ...departmentMeta, hodName: e.target.value })}
+                                        required
+                                        className="hod-input"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Academic Year</label>
+                                    <input
+                                        type="text"
+                                        value={departmentMeta.academicYear}
+                                        onChange={(e) => setDepartmentMeta({ ...departmentMeta, academicYear: e.target.value })}
+                                        className="hod-input"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Department Memo / Notice Board Announcement</label>
+                                <textarea
+                                    rows="3"
+                                    value={departmentMeta.announcement}
+                                    onChange={(e) => setDepartmentMeta({ ...departmentMeta, announcement: e.target.value })}
+                                    placeholder="Enter department memo visible to staff and students..."
+                                    className="hod-textarea"
+                                ></textarea>
+                            </div>
+
+                            <div className="modal-actions">
+                                <button type="button" className="btn-cancel" onClick={() => setIsProfileModalOpen(false)}>Cancel</button>
+                                <button type="submit" className="btn-save" disabled={isSaving}>
+                                    {isSaving ? 'Saving...' : '💾 Update Department in MongoDB'}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}

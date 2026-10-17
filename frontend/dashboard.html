@@ -47,15 +47,6 @@
                     <span class="sidebar-label">Courses & Labs</span>
                 </button>
 
-                <button type="button" class="sidebar-nav-item nav-link-btn" data-tab="team">
-                    <span class="sidebar-icon">
-                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-                            <path d="M16 11C17.66 11 18.99 9.66 18.99 8C18.99 6.34 17.66 5 16 5C14.34 5 13 6.34 13 8C13 9.66 14.34 11 16 11M8 11C9.66 11 10.99 9.66 10.99 8C10.99 6.34 9.66 5 8 5C6.34 5 5 6.34 5 8C5 9.66 6.34 11 8 11M8 13C5.67 13 1 14.17 1 16.5V19H15V16.5C15 14.17 10.33 13 8 13M16 13C15.71 13 15.38 13.02 15.03 13.05C16.19 13.89 17 15.02 17 16.5V19H23V16.5C23 14.17 18.33 13 16 13Z"/>
-                        </svg>
-                    </span>
-                    <span class="sidebar-label">Lab Team (2 Members)</span>
-                </button>
-
                 <button type="button" class="sidebar-nav-item nav-link-btn" data-tab="components">
                     <span class="sidebar-icon">
                         <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
@@ -170,17 +161,17 @@
                             </div>
                         </div>
 
-                        <!-- RIGHT COLUMN: Side Tabular Column (Team Finished Experiments & Live Updates) -->
+                        <!-- RIGHT COLUMN: Side Tabular Column (Finished Experiments & Live Updates) -->
                         <div class="dashboard-right-tabular">
                             <div class="tabular-column-card">
                                 <div class="tabular-header">
                                     <div>
-                                        <h3 class="tabular-heading">Team Progress & Updates</h3>
-                                        <p class="tabular-sub" id="sideTeamNameSub">Connecting to MongoDB...</p>
+                                        <h3 class="tabular-heading">Practical Progress & Updates</h3>
+                                        <p class="tabular-sub" id="sidePracticalNameSub">Connecting to MongoDB...</p>
                                     </div>
                                     <div class="tabular-switch-buttons">
                                         <button type="button" class="tabular-switch-btn active" id="tabBtnFinished" onclick="switchTabularTab('finished')">
-                                            Team Finished (<span id="tabularFinishedCount">0</span>)
+                                            Finished (<span id="tabularFinishedCount">0</span>)
                                         </button>
                                         <button type="button" class="tabular-switch-btn" id="tabBtnUpdates" onclick="switchTabularTab('updates')">
                                             Live Updates
@@ -188,16 +179,16 @@
                                     </div>
                                 </div>
 
-                                <!-- Tab Panel 1: Team Finished Experiments Table -->
+                                <!-- Tab Panel 1: Finished Experiments Table -->
                                 <div class="tabular-panel active" id="panelFinishedExp">
-                                    <div class="team-stat-highlight-box">
+                                    <div class="stat-highlight-box">
                                         <div class="highlight-ring-badge">
                                             <span class="highlight-num" id="metricFinishedRatio">0/10</span>
                                             <span class="highlight-lbl">Finished</span>
                                         </div>
                                         <div class="highlight-info-text">
-                                            <h4 id="metricTeamGroup">Team Practical Session</h4>
-                                            <p id="metricTeamStatusDesc">Experiments finished and verified by lab faculty</p>
+                                            <h4 id="metricPracticalSession">Practical Session</h4>
+                                            <p id="metricPracticalStatusDesc">Experiments finished and verified by lab faculty</p>
                                         </div>
                                     </div>
 
@@ -211,8 +202,8 @@
                                                     <th>STAFF</th>
                                                 </tr>
                                             </thead>
-                                            <tbody id="teamFinishedTableBody">
-                                                <tr><td colspan="4" class="table-empty-row">Loading team finished experiments...</td></tr>
+                                            <tbody id="finishedTableBody">
+                                                <tr><td colspan="4" class="table-empty-row">Loading finished experiments...</td></tr>
                                             </tbody>
                                         </table>
                                     </div>
@@ -247,7 +238,7 @@
                         <span id="valExpAttempted">-</span>
                         <span id="valExpPassed">-</span>
                         <span id="valExpRemaining">-</span>
-                        <span id="valTeamStatus">-</span>
+                        <span id="valPracticalStatus">-</span>
                         <span id="valSessionStatus">-</span>
                         <span id="bannerSessionTitle">-</span>
                         <span id="bannerSessionMeta">-</span>
@@ -517,85 +508,6 @@
         </section>
 
         <!-- ==========================================
-             VIEW 6: LAB TEAM REGISTRATION (EXACTLY 2 MEMBERS)
-             ========================================== -->
-        <section id="view-team" class="view-section">
-            <div class="team-container">
-                <div class="page-header" style="margin-bottom: 1.4rem;">
-                    <div>
-                        <h1 class="page-title">Lab Team <span class="accent">Registration</span></h1>
-                        <p class="page-subtitle" style="color: var(--purple-light);">
-                            ⚡ Each lab team consists of <strong>exactly 2 members</strong>. When both members pass the assessment, the team is allowed for practical work & hardware component issuance.
-                        </p>
-                    </div>
-                </div>
-
-                <form id="teamRegisterForm" onsubmit="submitTeamRegistration(event)">
-                    <!-- Team Name -->
-                    <div class="form-group">
-                        <label class="form-label">Team Name</label>
-                        <input type="text" id="teamNameInput" class="form-input" placeholder="e.g., Robotics Pair Alpha" required minlength="3">
-                    </div>
-
-                    <!-- Experiment Selection -->
-                    <div class="form-group">
-                        <label class="form-label">Assigned Experiment</label>
-                        <select id="teamExpSelect" class="form-select" onchange="onTeamExpChange()" required></select>
-                    </div>
-
-                    <!-- 2-Member Team Pair Structure -->
-                    <div class="form-group">
-                        <label class="form-label">Team Members (Strictly 2 Members)</label>
-                        <div class="team-pair-grid">
-                            <!-- Member 1: Authenticated Student -->
-                            <div class="member-card-box active">
-                                <div class="member-card-header">
-                                    <span class="member-role-tag">Member 1 (You)</span>
-                                    <span class="member-pass-badge passed" id="member1PassBadge">Passed ✓</span>
-                                </div>
-                                <div class="member-details-name" id="member1DisplayName">Loading...</div>
-                                <div class="member-details-reg" id="member1DisplayReg">Leader</div>
-                            </div>
-
-                            <!-- Member 2: Lab Partner Selection -->
-                            <div class="member-card-box">
-                                <div class="member-card-header">
-                                    <span class="member-role-tag">Member 2 (Lab Partner)</span>
-                                    <span class="member-pass-badge pending" id="member2PassBadge">Select Partner</span>
-                                </div>
-                                <select id="availableMemberSelect" class="form-select" onchange="onPartnerSelectChange()" required style="margin-top: 6px;">
-                                    <option value="">-- Choose 1 Lab Partner --</option>
-                                </select>
-                                <div class="member-details-reg" id="partnerPassHint" style="margin-top: 6px;">
-                                    Select a student from the registered class list
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Dynamic Practical Allowance Notification Banner -->
-                    <div class="team-practical-banner locked" id="teamPracticalStatusBanner">
-                        <div class="banner-status-icon" id="bannerStatusIcon">🔒</div>
-                        <div>
-                            <div class="banner-title locked" id="bannerStatusTitle">Practical Access: Assessment Verification Required</div>
-                            <div class="banner-sub" id="bannerStatusDesc">
-                                One team will pass only when <strong>both 2 members</strong> of the team pass the assessment. When the two members pass, practical lab session and hardware issuance will be allowed.
-                            </div>
-                        </div>
-                    </div>
-
-                    <div style="display: flex; justify-content: flex-end; margin-top: 1.8rem; gap: 12px;">
-                        <button type="button" class="secondary-btn" onclick="switchTab('dashboard')">Cancel</button>
-                        <button type="submit" class="primary-btn" id="teamRegisterSubmitBtn">Register 2-Member Team →</button>
-                    </div>
-                </form>
-
-                <!-- Registered Team Details Box if already enrolled -->
-                <div id="activeTeamCardContainer" style="margin-top: 2.2rem; display: none;"></div>
-            </div>
-        </section>
-
-        <!-- ==========================================
              VIEW 7: COMPONENT REQUIREMENTS VIEW
              ========================================== -->
         <section id="view-components" class="view-section">
@@ -606,7 +518,7 @@
                 </div>
                 <div style="display: flex; align-items: center; gap: 12px;">
                     <span style="font-size: 0.85rem; color: var(--text-muted);">Status:</span>
-                    <span class="badge-status awaiting-team" id="compIssueStatusTag">Awaiting Staff Issue</span>
+                    <span class="badge-status" id="compIssueStatusTag">Awaiting Staff Issue</span>
                 </div>
             </div>
 
@@ -623,7 +535,7 @@
             <div class="page-header">
                 <div>
                     <h1 class="page-title">My Lab <span class="accent">History</span></h1>
-                    <p class="page-subtitle">Server-recorded timestamps, scores, registered teams, components, and inspection outcomes</p>
+                    <p class="page-subtitle">Server-recorded timestamps, scores, practical sessions, components, and inspection outcomes</p>
                 </div>
             </div>
 
@@ -693,8 +605,8 @@
                         <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Failed</div>
                     </div>
                     <div style="text-align: center;">
-                        <div style="font-size: 1.3rem; font-weight: 800; color: var(--purple-light);" id="pTeams">0</div>
-                        <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Teams</div>
+                        <div style="font-size: 1.3rem; font-weight: 800; color: var(--purple-light);" id="pUnlocked">0</div>
+                        <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Unlocked</div>
                     </div>
                 </div>
             </div>

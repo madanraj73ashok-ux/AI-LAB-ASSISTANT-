@@ -1973,6 +1973,68 @@ textarea.form-control {
     box-shadow: 0 0 14px rgba(0, 245, 212, 0.5);
 }
 
+.add-schedule-btn-podx {
+    background: linear-gradient(135deg, #00f5d4, #00bb99);
+    border: none;
+    color: #031726;
+    padding: 0.5rem 1.15rem;
+    border-radius: 12px;
+    font-size: 0.84rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+    box-shadow: 0 0 16px rgba(0, 245, 212, 0.35);
+}
+
+.add-schedule-btn-podx:hover {
+    transform: translateY(-1.5px);
+    box-shadow: 0 0 22px rgba(0, 245, 212, 0.6);
+}
+
+.delete-schedule-btn-podx {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.35);
+    color: #fca5a5;
+    padding: 0.45rem 0.75rem;
+    border-radius: 12px;
+    font-size: 0.82rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-left: 6px;
+}
+
+.delete-schedule-btn-podx:hover {
+    background: #ef4444;
+    color: #ffffff;
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.5);
+}
+
+.logout-icon-btn-podx {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    color: #ffffff;
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    margin-left: auto;
+}
+
+.logout-icon-btn-podx:hover {
+    background: rgba(239, 68, 68, 0.3);
+    border-color: #ef4444;
+    color: #fca5a5;
+}
+
 /* ==========================================================================
    Modals & Toast System
    ========================================================================== */

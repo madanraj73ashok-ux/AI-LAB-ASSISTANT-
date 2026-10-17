@@ -11,7 +11,6 @@
 const Experiment = require('../models/Experiment');
 const LabManual = require('../models/LabManual');
 const Component = require('../models/Component');
-const StudentGroup = require('../models/StudentGroup');
 const LabSession = require('../models/LabSession');
 const ExamAttempt = require('../models/ExamAttempt');
 const DepartmentSchedule = require('../models/DepartmentSchedule');
@@ -28,7 +27,6 @@ async function runAIDepartmentAnalysis(requestedBy = 'HOD OF DEP') {
         manuals,
         experiments,
         components,
-        studentGroups,
         labSessions,
         examAttempts,
         currentSchedules
@@ -36,7 +34,6 @@ async function runAIDepartmentAnalysis(requestedBy = 'HOD OF DEP') {
         LabManual.find().lean(),
         Experiment.find({ isActive: true }).lean(),
         Component.find().lean(),
-        StudentGroup.find().lean(),
         LabSession.find().lean(),
         ExamAttempt.find().lean(),
         DepartmentSchedule.find().lean()
