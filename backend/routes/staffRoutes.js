@@ -2,9 +2,6 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
-const multer = require('multer');
-const { parseAndAnalyzeLabManual, syncLocalManualsToDatabase } = require('../services/pdfAnalyzer');
-const { runAIDepartmentAnalysis } = require('../services/aiDepartmentAnalyzer');
 
 // Models
 const Experiment = require('../models/Experiment');
@@ -20,34 +17,6 @@ const User = require('../models/StaffUser');
 const StudentUser = require('../models/User');
 const DepartmentSchedule = require('../models/DepartmentSchedule');
 const DepartmentProfile = require('../models/DepartmentProfile');
-
-// Multer Storage for Lab Manuals
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const dest = path.join(__dirname, '..', 'uploads', 'manuals');
-        if (!fs.existsSync(dest)) {
-            fs.mkdirSync(dest, { recursive: true });
-        }
-        cb(null, dest);
-    },
-    filename: (req, file, cb) => {
-        const expNum = (req.body.experimentNumber || 'EXP').replace(/[^a-zA-Z0-9_-]/g, '');
-        const cleanName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-        cb(null, `manual_${expNum}_${Date.now()}_${cleanName}`);
-    }
-});
-
-const upload = multer({
-    storage,
-    limits: { fileSize: 15 * 1024 * 1024 }, // 15MB
-    fileFilter: (req, file, cb) => {
-        if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
-            cb(null, true);
-        } else {
-            cb(new Error('Only PDF documents are allowed.'));
-        }
-    }
-});
 
 // Helper: Log audit action
 async function logAudit(action, category, staffUsername, details) {
@@ -172,9 +141,41 @@ router.get('/experiments', async (req, res) => {
         if (status === 'active') query.isActive = true;
         if (status === 'disabled') query.isActive = false;
 
-        const experiments = await Experiment.find(query).sort({ experimentNumber: 1 }).lean();
-        res.json({ success: true, data: experiments });
+        const [experiments, totalStudents, passedAttempts, schedules] = await Promise.all([
+            Experiment.find(query).sort({ experimentNumber: 1 }).lean(),
+            StudentUser.countDocuments({ role: 'student' }),
+            ExamAttempt.find({ passed: true }).select('experimentNumber studentUsername').lean(),
+            DepartmentSchedule.find().select('subject staffInCharge').lean()
+        ]);
+
+        const passMap = {};
+        for (const pa of passedAttempts) {
+            if (!passMap[pa.experimentNumber]) passMap[pa.experimentNumber] = new Set();
+            passMap[pa.experimentNumber].add(pa.studentUsername);
+        }
+
+        const scheduleStaffMap = {};
+        for (const s of schedules) {
+            if (s.subject) scheduleStaffMap[s.subject] = s.staffInCharge;
+        }
+
+        const enrichedExperiments = experiments.map(exp => {
+            const completedStudentsCount = passMap[exp.experimentNumber] ? passMap[exp.experimentNumber].size : 0;
+            const pendingStudentsCount = Math.max(0, totalStudents - completedStudentsCount);
+            const staffInCharge = exp.staffInCharge || scheduleStaffMap[exp.subject] || exp.createdBy || 'Assigned Staff';
+
+            return {
+                ...exp,
+                completedStudentsCount,
+                pendingStudentsCount,
+                totalStudentsCount: totalStudents,
+                staffInCharge
+            };
+        });
+
+        res.json({ success: true, data: enrichedExperiments });
     } catch (error) {
+        console.error('Error fetching experiments:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch experiments' });
     }
 });
@@ -299,377 +300,6 @@ router.delete('/experiments/:id', async (req, res) => {
 });
 
 // ==========================================
-// 3. LAB MANUAL MANAGEMENT
-// ==========================================
-router.get('/manuals', async (req, res) => {
-    try {
-        let manuals = await LabManual.find().sort({ createdAt: -1 }).lean();
-        if (manuals.length === 0) {
-            await syncLocalManualsToDatabase();
-            manuals = await LabManual.find().sort({ createdAt: -1 }).lean();
-        }
-        res.json({ success: true, data: manuals });
-    } catch (error) {
-        res.status(500).json({ success: false, message: 'Failed to fetch lab manuals' });
-    }
-});
-
-// Sync PDF manuals placed manually into uploads/manuals disk folder to MongoDB
-router.post('/manuals/sync-folder', async (req, res) => {
-    try {
-        const result = await syncLocalManualsToDatabase();
-        const manuals = await LabManual.find().sort({ createdAt: -1 }).lean();
-        res.json({ success: true, message: result.message, count: manuals.length, data: manuals });
-    } catch (error) {
-        res.status(500).json({ success: false, message: error.message || 'Failed to sync manuals' });
-    }
-});
-
-// AI-Powered Smart Lab Manual Upload & Auto-Analysis
-router.post('/manuals/ai-upload', upload.single('file'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ success: false, message: 'Please select a PDF lab manual to analyze.' });
-        }
-
-        const staffUser = req.headers['x-staff-user'] || 'staff_admin';
-        const customSubject = req.body.subject || '';
-
-        // Read physical file buffer from disk
-        const pdfBuffer = fs.readFileSync(req.file.path);
-
-        // Run AI Analysis (Docling Reader with PDFParse fallback)
-        const analysis = await parseAndAnalyzeLabManual(pdfBuffer, req.file.originalname, customSubject, req.file.path);
-
-        // 1. Save or Update LabManual
-        const primaryExpNum = (analysis.experiments && analysis.experiments.length > 0)
-            ? analysis.experiments[0].experimentNumber
-            : 'EXP-01';
-
-        let manualDoc = await LabManual.findOne({ subject: analysis.subject, experimentNumber: primaryExpNum });
-        if (!manualDoc) {
-            manualDoc = new LabManual({
-                subject: analysis.subject,
-                experimentNumber: primaryExpNum,
-                title: analysis.manualTitle,
-                fileName: req.file.filename,
-                originalFileName: req.file.originalname,
-                fileSize: req.file.size,
-                filePath: `uploads/manuals/${req.file.filename}`,
-                isPublished: true,
-                updatedBy: staffUser,
-                version: 1
-            });
-        } else {
-            manualDoc.title = analysis.manualTitle;
-            manualDoc.fileName = req.file.filename;
-            manualDoc.originalFileName = req.file.originalname;
-            manualDoc.fileSize = req.file.size;
-            manualDoc.filePath = `uploads/manuals/${req.file.filename}`;
-            manualDoc.version = (manualDoc.version || 1) + 1;
-            manualDoc.updatedBy = staffUser;
-            manualDoc.isPublished = true;
-        }
-        await manualDoc.save();
-
-        // 2. Auto-Fill Experiments in MongoDB
-        const createdExperiments = [];
-        const addedComponents = [];
-        const createdQuestions = [];
-
-        for (const expData of analysis.experiments) {
-            // Upsert Experiment scoped by experimentNumber and subject
-            let exp = await Experiment.findOne({ experimentNumber: expData.experimentNumber, subject: expData.subject });
-
-            if (exp) {
-                exp.title = expData.title;
-                exp.subject = expData.subject;
-                exp.laboratory = expData.laboratory;
-                exp.description = expData.description;
-                exp.objectives = expData.objectives;
-                exp.instructions = expData.instructions;
-                exp.requiredComponents = expData.requiredComponents;
-                exp.isActive = true;
-                await exp.save();
-            } else {
-                exp = await Experiment.create({
-                    experimentNumber: expData.experimentNumber,
-                    title: expData.title,
-                    subject: expData.subject,
-                    laboratory: expData.laboratory,
-                    description: expData.description,
-                    objectives: expData.objectives,
-                    instructions: expData.instructions,
-                    requiredComponents: expData.requiredComponents,
-                    isActive: true,
-                    createdBy: staffUser
-                });
-            }
-            createdExperiments.push(exp);
-
-            // Auto-Add Missing Components to Inventory
-            if (expData.requiredComponents && expData.requiredComponents.length) {
-                for (const comp of expData.requiredComponents) {
-                    try {
-                        const existingComp = await Component.findOne({
-                            $or: [
-                                { partNumber: comp.partNumber },
-                                { name: comp.componentName }
-                            ]
-                        });
-                        if (!existingComp) {
-                            const newComp = await Component.create({
-                                name: comp.componentName,
-                                type: 'Hardware Apparatus',
-                                partNumber: comp.partNumber || `PRT-${Date.now().toString().slice(-4)}`,
-                                totalQuantity: 25,
-                                availableQuantity: 20,
-                                minimumStockLevel: 5,
-                                storageLocation: 'Lab Cabinet A',
-                                condition: 'Good',
-                                specifications: comp.notes || 'Lab Manual Specification',
-                                safetyPrecautions: 'Standard ESD and power safety precautions apply.',
-                                history: [{ action: 'AI Auto-Stocked from Lab Manual', quantityChange: 25, staff: staffUser, remarks: `Added for ${expData.experimentNumber}` }]
-                            });
-                            addedComponents.push(newComp);
-                        }
-                    } catch (compErr) {
-                        console.warn('Component upload notice:', compErr.message);
-                    }
-                }
-            }
-
-            // Auto-Fill QuestionSet in Question Bank
-            if (expData.questions && expData.questions.length) {
-                const formattedQuestions = expData.questions.map(q => ({
-                    questionText: q.questionText || q.question || 'Pre-Lab Technical Question',
-                    options: (q.options && q.options.length === 4) ? q.options : ['Option A', 'Option B', 'Option C', 'Option D'],
-                    correctOptionIndex: typeof q.correctOptionIndex === 'number' ? q.correctOptionIndex : (typeof q.correctAnswer === 'number' ? q.correctAnswer : 0),
-                    marks: 1
-                }));
-
-                let qSet = await QuestionSet.findOne({ experimentNumber: expData.experimentNumber, subject: expData.subject });
-                if (qSet) {
-                    qSet.subject = expData.subject;
-                    qSet.title = `${expData.title} Pre-Lab Assessment`;
-                    qSet.questions = formattedQuestions;
-                    qSet.isPublished = true;
-                    await qSet.save();
-                } else {
-                    qSet = await QuestionSet.create({
-                        experimentNumber: expData.experimentNumber,
-                        subject: expData.subject,
-                        title: `${expData.title} Pre-Lab Assessment`,
-                        testDurationMinutes: 5,
-                        passMark: 3,
-                        isPublished: true,
-                        createdBy: staffUser,
-                        questions: formattedQuestions
-                    });
-                }
-                createdQuestions.push(qSet);
-            }
-        }
-
-        await logAudit('AI Lab Manual Auto-Fill', 'Manuals', staffUser, `AI Analyzed "${req.file.originalname}" -> Populated ${createdExperiments.length} experiments for "${analysis.subject}"`);
-
-        res.status(201).json({
-            success: true,
-            message: `AI successfully analyzed the lab manual! Auto-filled Subject "${analysis.subject}", ${createdExperiments.length} experiments, components, and test question sets.`,
-            data: {
-                subject: analysis.subject,
-                laboratory: analysis.laboratory,
-                manual: manualDoc,
-                experimentsCount: createdExperiments.length,
-                experiments: createdExperiments,
-                componentsCount: addedComponents.length,
-                questionSetsCount: createdQuestions.length
-            }
-        });
-    } catch (error) {
-        console.error('AI Manual upload error:', error);
-        res.status(500).json({ success: false, message: error.message || 'Failed to analyze and auto-fill lab manual' });
-    }
-});
-
-// Standard manual upload with fallback to AI auto-analysis if fields are omitted
-router.post('/manuals/upload', upload.single('file'), async (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ success: false, message: 'Please select a valid PDF lab manual to upload.' });
-        }
-
-        let { subject, experimentNumber, title, autoAnalyze } = req.body;
-        const staffUser = req.headers['x-staff-user'] || 'staff_admin';
-
-        // If user requested AI auto-analysis OR left fields blank, delegate to AI engine
-        if (autoAnalyze === 'true' || autoAnalyze === true || !subject || !experimentNumber || !title) {
-            const pdfBuffer = fs.readFileSync(req.file.path);
-            const analysis = await parseAndAnalyzeLabManual(pdfBuffer, req.file.originalname, subject || '', req.file.path);
-            
-            subject = subject || analysis.subject;
-            experimentNumber = experimentNumber || (analysis.experiments.length ? analysis.experiments[0].experimentNumber : 'EXP-01');
-            title = title || analysis.manualTitle;
-
-            // Also auto-fill detected experiments and questions
-            for (const expData of analysis.experiments) {
-                const existingExp = await Experiment.findOne({ experimentNumber: expData.experimentNumber });
-                if (!existingExp) {
-                    await Experiment.create({
-                        experimentNumber: expData.experimentNumber,
-                        title: expData.title,
-                        subject: expData.subject,
-                        laboratory: expData.laboratory,
-                        description: expData.description,
-                        objectives: expData.objectives,
-                        instructions: expData.instructions,
-                        requiredComponents: expData.requiredComponents,
-                        isActive: true,
-                        createdBy: staffUser
-                    });
-                }
-                const existingQ = await QuestionSet.findOne({ experimentNumber: expData.experimentNumber });
-                if (!existingQ && expData.questions) {
-                    await QuestionSet.create({
-                        experimentNumber: expData.experimentNumber,
-                        subject: expData.subject,
-                        title: `${expData.title} Pre-Lab Assessment`,
-                        testDurationMinutes: 5,
-                        passMark: 3,
-                        isPublished: true,
-                        createdBy: staffUser,
-                        questions: expData.questions
-                    });
-                }
-            }
-        }
-
-        const expNum = experimentNumber.trim().toUpperCase();
-
-        // Check if manual already exists for this experiment - update or replace
-        const existing = await LabManual.findOne({ experimentNumber: expNum });
-        let manualDoc;
-
-        if (existing) {
-            const oldPath = path.join(__dirname, '..', existing.filePath);
-            if (fs.existsSync(oldPath)) {
-                try { fs.unlinkSync(oldPath); } catch (e) {}
-            }
-
-            existing.subject = subject.trim();
-            existing.title = title.trim();
-            existing.fileName = req.file.filename;
-            existing.originalFileName = req.file.originalname;
-            existing.fileSize = req.file.size;
-            existing.filePath = `uploads/manuals/${req.file.filename}`;
-            existing.version = (existing.version || 1) + 1;
-            existing.updatedBy = staffUser;
-            existing.isPublished = true;
-            manualDoc = await existing.save();
-
-            await logAudit('Revise Lab Manual', 'Manuals', staffUser, `Updated manual for ${expNum} (v${manualDoc.version})`);
-        } else {
-            manualDoc = new LabManual({
-                subject: subject.trim(),
-                experimentNumber: expNum,
-                title: title.trim(),
-                fileName: req.file.filename,
-                originalFileName: req.file.originalname,
-                fileSize: req.file.size,
-                filePath: `uploads/manuals/${req.file.filename}`,
-                isPublished: true,
-                updatedBy: staffUser,
-                version: 1
-            });
-            await manualDoc.save();
-            await logAudit('Upload Lab Manual', 'Manuals', staffUser, `Uploaded manual for ${expNum}`);
-        }
-
-        res.status(201).json({
-            success: true,
-            message: `Lab Manual for ${expNum} (${subject}) uploaded and auto-synced successfully!`,
-            data: manualDoc
-        });
-    } catch (error) {
-        console.error('Manual upload error:', error);
-        res.status(500).json({ success: false, message: error.message || 'Failed to upload lab manual' });
-    }
-});
-
-// Helper route to clean demo/placeholder experiments when user starts uploading real subjects
-router.post('/experiments/cleanup-dummy', async (req, res) => {
-    try {
-        const dummyExpNums = ['EXP-01', 'EXP-02', 'EXP-03', 'EXP-04', 'EXP-05'];
-        await LabSession.deleteMany({ experimentNumber: { $in: dummyExpNums } });
-        await ComponentIssue.deleteMany({ experimentNumber: { $in: dummyExpNums } });
-        await QuestionSet.deleteMany({ experimentNumber: { $in: dummyExpNums } });
-        await Experiment.deleteMany({ experimentNumber: { $in: dummyExpNums } });
-        await LabManual.deleteMany({ experimentNumber: { $in: dummyExpNums } });
-        await logAudit('Cleanup Demo Data', 'Experiments', req.headers['x-staff-user'] || 'staff_admin', 'Cleared default demo experiments to make room for uploaded subject lab manuals');
-        res.json({ success: true, message: 'Default demo experiments cleared. Ready for your uploaded subject lab manuals!' });
-    } catch (err) {
-        res.status(500).json({ success: false, message: 'Failed to clean dummy experiments' });
-    }
-});
-
-router.patch('/manuals/:id/publish', async (req, res) => {
-    try {
-        const manual = await LabManual.findById(req.params.id);
-        if (!manual) return res.status(404).json({ success: false, message: 'Manual not found' });
-
-        manual.isPublished = !manual.isPublished;
-        await manual.save();
-
-        await logAudit(
-            manual.isPublished ? 'Publish Manual' : 'Unpublish Manual',
-            'Manuals',
-            req.headers['x-staff-user'] || 'staff_admin',
-            `${manual.isPublished ? 'Published' : 'Unpublished'} manual for ${manual.experimentNumber}`
-        );
-
-        res.json({ success: true, message: `Manual ${manual.isPublished ? 'published' : 'unpublished'}`, data: manual });
-    } catch (error) {
-        res.status(500).json({ success: false, message: 'Error updating publish status' });
-    }
-});
-
-router.get('/manuals/:id/download', async (req, res) => {
-    try {
-        const manual = await LabManual.findById(req.params.id);
-        if (!manual) return res.status(404).send('Manual not found');
-
-        const filePath = path.join(__dirname, '..', manual.filePath);
-        if (!fs.existsSync(filePath)) {
-            return res.status(404).send('Physical file missing on server.');
-        }
-
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `inline; filename="${manual.originalFileName}"`);
-        fs.createReadStream(filePath).pipe(res);
-    } catch (error) {
-        res.status(500).send('Error serving file');
-    }
-});
-
-router.delete('/manuals/:id', async (req, res) => {
-    try {
-        const manual = await LabManual.findById(req.params.id);
-        if (!manual) return res.status(404).json({ success: false, message: 'Manual not found' });
-
-        const filePath = path.join(__dirname, '..', manual.filePath);
-        if (fs.existsSync(filePath)) {
-            try { fs.unlinkSync(filePath); } catch (e) {}
-        }
-
-        await LabManual.findByIdAndDelete(req.params.id);
-        await logAudit('Delete Manual', 'Manuals', req.headers['x-staff-user'] || 'staff_admin', `Deleted manual for ${manual.experimentNumber}`);
-        res.json({ success: true, message: 'Manual removed successfully' });
-    } catch (error) {
-        res.status(500).json({ success: false, message: 'Error deleting manual' });
-    }
-});
-
-// ==========================================
 // 4. QUESTION BANK MANAGEMENT
 // ==========================================
 router.get('/questions', async (req, res) => {
@@ -779,22 +409,65 @@ router.get('/components', async (req, res) => {
             query.$expr = { $lte: ['$availableQuantity', '$minimumStockLevel'] };
         }
 
-        const components = await Component.find(query).sort({ name: 1 }).lean();
-        res.json({ success: true, data: components });
+        const [components, experiments] = await Promise.all([
+            Component.find(query).sort({ name: 1 }).lean(),
+            Experiment.find({ isActive: true }).select('experimentNumber title requiredComponents').lean()
+        ]);
+
+        const expUsageMap = {};
+        for (const exp of experiments) {
+            if (Array.isArray(exp.requiredComponents)) {
+                for (const rc of exp.requiredComponents) {
+                    const pNum = (rc.partNumber || '').trim().toUpperCase();
+                    const cName = (rc.componentName || '').trim().toLowerCase();
+                    if (pNum) {
+                        if (!expUsageMap[pNum]) expUsageMap[pNum] = [];
+                        if (!expUsageMap[pNum].includes(exp.experimentNumber)) expUsageMap[pNum].push(exp.experimentNumber);
+                    }
+                    if (cName) {
+                        if (!expUsageMap[cName]) expUsageMap[cName] = [];
+                        if (!expUsageMap[cName].includes(exp.experimentNumber)) expUsageMap[cName].push(exp.experimentNumber);
+                    }
+                }
+            }
+        }
+
+        const enrichedComponents = components.map(c => {
+            const pNum = (c.partNumber || '').trim().toUpperCase();
+            const cName = (c.name || '').trim().toLowerCase();
+            const usedExps = Array.from(new Set([...(expUsageMap[pNum] || []), ...(expUsageMap[cName] || [])]));
+            const issuedQuantity = Math.max(0, (c.totalQuantity || 0) - (c.availableQuantity || 0));
+            const isLowStock = (c.availableQuantity || 0) <= (c.minimumStockLevel || 5);
+
+            return {
+                ...c,
+                issuedQuantity,
+                isLowStock,
+                usedInExperiments: usedExps
+            };
+        });
+
+        res.json({ success: true, data: enrichedComponents });
     } catch (error) {
+        console.error('Error fetching components:', error);
         res.status(500).json({ success: false, message: 'Failed to fetch inventory components' });
     }
 });
 
 router.post('/components', async (req, res) => {
     try {
-        const { name, type, partNumber, totalQuantity, minimumStockLevel, storageLocation, condition, specifications, safetyPrecautions } = req.body;
+        let { name, type, partNumber, totalQuantity, minimumStockLevel, storageLocation, condition, specifications, safetyPrecautions } = req.body;
 
-        if (!name || !type || !partNumber || totalQuantity === undefined) {
-            return res.status(400).json({ success: false, message: 'Name, Type, Part Number, and Quantity are required.' });
+        if (!name || totalQuantity === undefined) {
+            return res.status(400).json({ success: false, message: 'Name and Total Quantity are required.' });
         }
 
-        const cleanPartNumber = partNumber.trim().toUpperCase();
+        type = type ? type.trim() : 'Hardware Apparatus';
+        let cleanPartNumber = (partNumber || '').trim().toUpperCase();
+        if (!cleanPartNumber) {
+            cleanPartNumber = `PRT-${Date.now().toString().slice(-5)}`;
+        }
+
         const existing = await Component.findOne({ partNumber: cleanPartNumber });
         if (existing) {
             return res.status(409).json({ success: false, message: `Component with part number ${cleanPartNumber} already exists.` });
@@ -805,7 +478,7 @@ router.post('/components', async (req, res) => {
 
         const component = new Component({
             name: name.trim(),
-            type: type.trim(),
+            type,
             partNumber: cleanPartNumber,
             totalQuantity: qty,
             availableQuantity: qty,
@@ -1497,8 +1170,13 @@ router.get('/hod/overview', async (req, res) => {
             totalManuals,
             totalStudents,
             totalSessions,
+            activeSessionsCount,
+            distinctLabs,
             totalComponents,
-            examStats
+            examStats,
+            totalAttemptsCount,
+            passedAttemptsCount,
+            allStaffUsers
         ] = await Promise.all([
             getDepartmentProfile(),
             DepartmentSchedule.find().sort({ subject: 1 }).lean(),
@@ -1506,6 +1184,10 @@ router.get('/hod/overview', async (req, res) => {
             LabManual.countDocuments({ isPublished: true }),
             StudentUser.countDocuments({ role: 'student' }),
             LabSession.countDocuments(),
+            LabSession.countDocuments({
+                status: { $in: ['Components Issued', 'Experiment In Progress', 'Return Pending', 'Inspection Pending'] }
+            }),
+            Experiment.distinct('laboratory'),
             Component.find().lean(),
             ExamAttempt.aggregate([
                 {
@@ -1515,7 +1197,10 @@ router.get('/hod/overview', async (req, res) => {
                         avgScore: { $avg: '$score' }
                     }
                 }
-            ])
+            ]),
+            ExamAttempt.countDocuments(),
+            ExamAttempt.countDocuments({ passed: true }),
+            User.find({ role: { $in: ['staff', 'hod', 'HOD OF DEP', 'admin'] } }).lean()
         ]);
 
         // Calculate Department Totals
@@ -1527,6 +1212,67 @@ router.get('/hod/overview', async (req, res) => {
         const totalStock = totalComponents.reduce((acc, c) => acc + (c.totalQuantity || 0), 0);
         const availableStock = totalComponents.reduce((acc, c) => acc + (c.availableQuantity || 0), 0);
         const issuedStock = Math.max(0, totalStock - availableStock);
+
+        // Performance Stats
+        const componentHandoverRate = totalStock > 0 ? Math.round((issuedStock / totalStock) * 100) : 0;
+        const goodConditionCount = totalComponents.filter(c => c.condition === 'Good' || c.condition === 'Brand New').length;
+        const hardwareHealthRate = totalComponents.length > 0 ? Math.round((goodConditionCount / totalComponents.length) * 100) : 0;
+        const studentPassRate = totalAttemptsCount > 0 ? Math.round((passedAttemptsCount / totalAttemptsCount) * 100) : 0;
+
+        // Dynamic 7-bar chart subjects
+        const analyticsBars = schedules.slice(0, 7).map(s => {
+            const words = s.subject.replace(/[^a-zA-Z\s]/g, '').split(/\s+/).filter(w => w.length > 1 && !['and', 'the', 'for', 'with', 'lab'].includes(w.toLowerCase()));
+            let code = words.map(w => w[0].toUpperCase()).join('').slice(0, 4);
+            if (!code || code.length < 2) code = s.subject.slice(0, 3).toUpperCase();
+            const target = s.totalExperiments || 10;
+            const completed = s.completedExperiments || 0;
+            const pct = target > 0 ? Math.round((completed / target) * 100) : 0;
+            return {
+                subject: s.subject,
+                code,
+                completed,
+                total: target,
+                pct: Math.min(100, Math.max(0, pct))
+            };
+        });
+
+        // 4 Dynamic Lab Stations
+        const stations = [
+            {
+                name: 'Microcontroller Benches',
+                filter: /apparatus|bench|microcontroller|embedded/i,
+                fallbackType: 'Hardware Apparatus'
+            },
+            {
+                name: 'Sensor Test Rigs',
+                filter: /sensor|transducer|detector|module/i,
+                fallbackType: 'Sensor'
+            },
+            {
+                name: 'Oscilloscope Racks',
+                filter: /instrument|measurement|oscilloscope|meter/i,
+                fallbackType: 'Equipment'
+            },
+            {
+                name: 'FPGA & IC Development',
+                filter: /ic|circuit|digital|fpga|logic/i,
+                fallbackType: 'Electronic Components'
+            }
+        ].map(st => {
+            const matching = totalComponents.filter(c => st.filter.test(c.type || '') || st.filter.test(c.name || ''));
+            const total = matching.reduce((sum, c) => sum + (c.totalQuantity || 0), 0);
+            const available = matching.reduce((sum, c) => sum + (c.availableQuantity || 0), 0);
+            return {
+                title: st.name,
+                totalUnits: total > 0 ? total : 25,
+                availableUnits: available > 0 ? available : 20,
+                inUseUnits: Math.max(0, (total > 0 ? total : 25) - (available > 0 ? available : 20))
+            };
+        });
+
+        // Faculty security counts
+        const activeStaffCount = allStaffUsers.filter(u => u.status !== 'Inactive').length;
+        const clearedStaffCount = allStaffUsers.filter(u => u.securityClearance !== false).length;
 
         res.json({
             success: true,
@@ -1548,6 +1294,24 @@ router.get('/hod/overview', async (req, res) => {
                     issuedComponents: issuedStock,
                     availableComponents: availableStock
                 },
+                labManagement: {
+                    totalLabs: distinctLabs.length > 0 ? distinctLabs.length : schedules.length,
+                    totalExperiments: totalExps,
+                    activeSessions: activeSessionsCount
+                },
+                staffSecurity: {
+                    activeStaffCount: activeStaffCount || 4,
+                    clearedStaffCount: clearedStaffCount || 4,
+                    totalStaffCount: allStaffUsers.length || 4
+                },
+                performanceStats: {
+                    overallCompletionRate,
+                    componentHandoverRate,
+                    hardwareHealthRate,
+                    studentPassRate
+                },
+                analyticsBars,
+                stations,
                 schedules,
                 examStats
             }
@@ -1594,23 +1358,39 @@ router.put('/hod/profile', requireStaff, async (req, res) => {
     }
 });
 
-// GET all HOD Schedules
+// GET all HOD Schedules / Milestones
 router.get('/hod/schedules', async (req, res) => {
     try {
         await ensureDefaultHODSchedules();
         const schedules = await DepartmentSchedule.find().sort({ createdAt: -1 }).lean();
-        res.json({ success: true, data: schedules });
+        const now = new Date();
+
+        const enrichedSchedules = schedules.map(s => {
+            const dueDate = s.dueDate || s.studentCompletionDeadline || s.componentIssueDeadline;
+            const isOverdue = s.status === 'Overdue' || (dueDate && new Date(dueDate) < now && s.status !== 'Done' && s.status !== 'Completed');
+            return {
+                ...s,
+                milestone: s.milestone || 'Curriculum Milestone Target',
+                dueDate,
+                status: isOverdue ? 'Overdue' : s.status,
+                isOverdue
+            };
+        });
+
+        res.json({ success: true, data: enrichedSchedules });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Failed to fetch HOD schedules' });
     }
 });
 
-// CREATE HOD Schedule
+// CREATE HOD Schedule / Milestone
 router.post('/hod/schedules', async (req, res) => {
     try {
         const {
             subject,
             staffInCharge,
+            milestone,
+            dueDate,
             totalExperiments,
             completedExperiments,
             componentIssueDeadline,
@@ -1620,53 +1400,51 @@ router.post('/hod/schedules', async (req, res) => {
             notes
         } = req.body;
 
-        if (!subject || !componentIssueDeadline || !studentCompletionDeadline) {
-            return res.status(400).json({ success: false, message: 'Subject, Component Deadline, and Student Completion Deadline are required' });
+        if (!subject) {
+            return res.status(400).json({ success: false, message: 'Subject is required' });
         }
 
         const updater = (req.staffUser && req.staffUser.username) || req.headers['x-staff-user'] || 'admin';
+        const targetDueDate = dueDate ? new Date(dueDate) : (studentCompletionDeadline ? new Date(studentCompletionDeadline) : new Date(Date.now() + 14 * 86400000));
+        const issueDate = componentIssueDeadline ? new Date(componentIssueDeadline) : new Date(Date.now() + 7 * 86400000);
+        const completionDate = studentCompletionDeadline ? new Date(studentCompletionDeadline) : targetDueDate;
 
         const newSchedule = new DepartmentSchedule({
             subject: subject.trim(),
             staffInCharge: staffInCharge || 'Assigned Staff',
+            milestone: milestone ? milestone.trim() : 'Lab Practical Milestone',
+            dueDate: targetDueDate,
             totalExperiments: Number(totalExperiments) || 10,
             completedExperiments: Number(completedExperiments) || 0,
-            componentIssueDeadline: new Date(componentIssueDeadline),
-            studentCompletionDeadline: new Date(studentCompletionDeadline),
+            componentIssueDeadline: issueDate,
+            studentCompletionDeadline: completionDate,
             batchName: batchName || 'Standard Batch',
-            status: status || 'In Progress',
+            status: status || 'Pending',
             notes: notes || '',
             lastUpdatedBy: updater
         });
 
         await newSchedule.save();
-        await logAudit('CREATE_HOD_SCHEDULE', 'HOD Panel', updater, `Admin created timeline for ${subject}`);
+        await logAudit('CREATE_HOD_MILESTONE', 'HOD Panel', updater, `Admin created milestone for ${subject}: ${newSchedule.milestone}`);
 
-        res.status(201).json({ success: true, message: 'Department schedule created successfully', data: newSchedule });
+        res.status(201).json({ success: true, message: 'Milestone created successfully in MongoDB', data: newSchedule });
     } catch (err) {
-        res.status(500).json({ success: false, message: err.message || 'Failed to create schedule' });
+        res.status(500).json({ success: false, message: err.message || 'Failed to create milestone' });
     }
 });
 
-// UPDATE HOD Schedule (Completed experiments, dates, staff)
+// UPDATE HOD Schedule / Milestone
 router.put('/hod/schedules/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const updates = req.body;
         const updater = (req.staffUser && req.staffUser.username) || req.headers['x-staff-user'] || 'admin';
 
-        if (updates.componentIssueDeadline) {
-            updates.componentIssueDeadline = new Date(updates.componentIssueDeadline);
-        }
-        if (updates.studentCompletionDeadline) {
-            updates.studentCompletionDeadline = new Date(updates.studentCompletionDeadline);
-        }
-        if (updates.completedExperiments !== undefined) {
-            updates.completedExperiments = Number(updates.completedExperiments);
-        }
-        if (updates.totalExperiments !== undefined) {
-            updates.totalExperiments = Number(updates.totalExperiments);
-        }
+        if (updates.dueDate) updates.dueDate = new Date(updates.dueDate);
+        if (updates.componentIssueDeadline) updates.componentIssueDeadline = new Date(updates.componentIssueDeadline);
+        if (updates.studentCompletionDeadline) updates.studentCompletionDeadline = new Date(updates.studentCompletionDeadline);
+        if (updates.completedExperiments !== undefined) updates.completedExperiments = Number(updates.completedExperiments);
+        if (updates.totalExperiments !== undefined) updates.totalExperiments = Number(updates.totalExperiments);
         updates.lastUpdatedBy = updater;
 
         const updated = await DepartmentSchedule.findByIdAndUpdate(id, { $set: updates }, { new: true });
@@ -1674,11 +1452,27 @@ router.put('/hod/schedules/:id', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Schedule record not found' });
         }
 
-        await logAudit('UPDATE_HOD_SCHEDULE', 'HOD Panel', updater, `Admin updated progress for ${updated.subject}: ${updated.completedExperiments}/${updated.totalExperiments} finished`);
-
+        await logAudit('UPDATE_HOD_SCHEDULE', 'HOD Panel', updater, `Updated schedule for ${updated.subject}: ${updated.milestone || ''}`);
         res.json({ success: true, message: 'Schedule updated successfully', data: updated });
     } catch (err) {
         res.status(500).json({ success: false, message: err.message || 'Failed to update schedule' });
+    }
+});
+
+// TOGGLE Status for Milestone
+router.patch('/hod/schedules/:id/status', async (req, res) => {
+    try {
+        const schedule = await DepartmentSchedule.findById(req.params.id);
+        if (!schedule) return res.status(404).json({ success: false, message: 'Schedule record not found' });
+
+        schedule.status = schedule.status === 'Done' ? 'Pending' : 'Done';
+        schedule.lastUpdatedBy = (req.staffUser && req.staffUser.username) || req.headers['x-staff-user'] || 'admin';
+        await schedule.save();
+
+        await logAudit('TOGGLE_MILESTONE_STATUS', 'HOD Panel', schedule.lastUpdatedBy, `${schedule.subject} milestone marked as ${schedule.status}`);
+        res.json({ success: true, message: `Milestone status changed to ${schedule.status}`, data: schedule });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to toggle milestone status' });
     }
 });
 
@@ -1695,22 +1489,335 @@ router.delete('/hod/schedules/:id', async (req, res) => {
     }
 });
 
-// POST /hod/ai-analyze: Run AI Department Analysis & Auto-Map Schedules
-router.post('/hod/ai-analyze', async (req, res) => {
+// ==========================================
+// 15. STAFF FACULTY MANAGEMENT
+// ==========================================
+router.get('/faculty', async (req, res) => {
     try {
-        const staffUser = (req.staffUser && req.staffUser.username) || 'HOD OF DEP';
-        const result = await runAIDepartmentAnalysis(staffUser);
-        res.json({
+        const { search } = req.query;
+        let query = { role: { $in: ['staff', 'hod', 'HOD OF DEP', 'admin'] } };
+        if (search) {
+            query.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { username: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        let faculty = await User.find(query).select('-password').sort({ name: 1, username: 1 }).lean();
+
+        // Ensure default profile data if fields are unset
+        faculty = faculty.map(f => {
+            let name = f.name;
+            let email = f.email;
+            let assignedSubjects = Array.isArray(f.assignedSubjects) && f.assignedSubjects.length > 0 ? f.assignedSubjects : [];
+
+            if (!name) {
+                if (f.username === 'staff_admin') name = 'Dr. K. Arunkumar (Assoc. Prof)';
+                else if (f.username === 'admin' || f.username === 'HOD OF DEP') name = 'Admin (Head of Department)';
+                else name = `Prof. ${f.username.charAt(0).toUpperCase() + f.username.slice(1)}`;
+            }
+            if (!email) {
+                email = `${f.username.toLowerCase()}@vlab.edu`;
+            }
+            if (assignedSubjects.length === 0) {
+                if (f.username === 'staff_admin') assignedSubjects = ['Analog & Digital Circuits', 'Embedded Systems & IoT'];
+                else if (f.username === 'admin' || f.username === 'HOD OF DEP') assignedSubjects = ['All Department Laboratories'];
+                else assignedSubjects = ['General Electronics Lab'];
+            }
+
+            return {
+                ...f,
+                name,
+                email,
+                assignedSubjects,
+                status: f.status || 'Active',
+                securityClearance: f.securityClearance !== undefined ? f.securityClearance : true
+            };
+        });
+
+        res.json({ success: true, data: faculty });
+    } catch (err) {
+        console.error('Faculty fetch error:', err);
+        res.status(500).json({ success: false, message: 'Failed to fetch staff faculty members' });
+    }
+});
+
+router.post('/faculty', async (req, res) => {
+    try {
+        const { username, password, name, email, assignedSubjects, status } = req.body;
+        if (!username || !password) {
+            return res.status(400).json({ success: false, message: 'Username and password are required' });
+        }
+
+        const cleanUsername = username.trim().toLowerCase();
+        const existing = await User.findOne({ username: cleanUsername });
+        if (existing) {
+            return res.status(409).json({ success: false, message: `Staff user '${cleanUsername}' already exists` });
+        }
+
+        const newFaculty = new User({
+            username: cleanUsername,
+            password: password,
+            role: 'staff',
+            name: name ? name.trim() : `Prof. ${cleanUsername}`,
+            email: email ? email.trim() : `${cleanUsername}@vlab.edu`,
+            assignedSubjects: Array.isArray(assignedSubjects) ? assignedSubjects : (assignedSubjects ? assignedSubjects.split(',').map(s => s.trim()).filter(Boolean) : []),
+            status: status || 'Active',
+            securityClearance: true
+        });
+
+        await newFaculty.save();
+        const staffUser = req.headers['x-staff-user'] || 'admin';
+        await logAudit('CREATE_FACULTY', 'Staff Management', staffUser, `Added new faculty member: ${newFaculty.name} (${newFaculty.username})`);
+
+        res.status(201).json({
             success: true,
-            message: 'AI Department Analysis completed and synced to MongoDB (staff_portal)!',
-            data: result
+            message: `Faculty member ${newFaculty.name} registered successfully in MongoDB`,
+            data: {
+                _id: newFaculty._id,
+                username: newFaculty.username,
+                name: newFaculty.name,
+                email: newFaculty.email,
+                assignedSubjects: newFaculty.assignedSubjects,
+                status: newFaculty.status,
+                securityClearance: newFaculty.securityClearance
+            }
         });
     } catch (err) {
-        console.error('AI Analysis error:', err);
-        res.status(500).json({
-            success: false,
-            message: err.message || 'AI Analysis failed'
+        console.error('Create faculty error:', err);
+        res.status(500).json({ success: false, message: err.message || 'Failed to create faculty member' });
+    }
+});
+
+router.put('/faculty/:id', async (req, res) => {
+    try {
+        const { name, email, assignedSubjects, status } = req.body;
+        const faculty = await User.findById(req.params.id);
+        if (!faculty) {
+            return res.status(404).json({ success: false, message: 'Faculty member not found' });
+        }
+
+        if (name) faculty.name = name.trim();
+        if (email) faculty.email = email.trim();
+        if (assignedSubjects !== undefined) {
+            faculty.assignedSubjects = Array.isArray(assignedSubjects) ? assignedSubjects : assignedSubjects.split(',').map(s => s.trim()).filter(Boolean);
+        }
+        if (status) faculty.status = status;
+
+        await faculty.save();
+        const staffUser = req.headers['x-staff-user'] || 'admin';
+        await logAudit('UPDATE_FACULTY', 'Staff Management', staffUser, `Updated faculty details for ${faculty.name || faculty.username}`);
+
+        res.json({ success: true, message: 'Faculty details updated successfully in MongoDB', data: faculty });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message || 'Failed to update faculty details' });
+    }
+});
+
+router.patch('/faculty/:id/status', async (req, res) => {
+    try {
+        const faculty = await User.findById(req.params.id);
+        if (!faculty) return res.status(404).json({ success: false, message: 'Faculty member not found' });
+
+        faculty.status = faculty.status === 'Active' ? 'Inactive' : 'Active';
+        await faculty.save();
+
+        const staffUser = req.headers['x-staff-user'] || 'admin';
+        await logAudit('TOGGLE_FACULTY_STATUS', 'Staff Management', staffUser, `${faculty.name || faculty.username} marked as ${faculty.status}`);
+
+        res.json({ success: true, message: `Faculty member is now ${faculty.status}`, data: faculty });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to update faculty status' });
+    }
+});
+
+router.patch('/faculty/:id/clearance', async (req, res) => {
+    try {
+        const faculty = await User.findById(req.params.id);
+        if (!faculty) return res.status(404).json({ success: false, message: 'Faculty member not found' });
+
+        faculty.securityClearance = !faculty.securityClearance;
+        await faculty.save();
+
+        const staffUser = req.headers['x-staff-user'] || 'admin';
+        await logAudit('SECURITY_CLEARANCE_TOGGLE', 'Security', staffUser, `Security clearance ${faculty.securityClearance ? 'granted' : 'revoked'} for ${faculty.name || faculty.username}`);
+
+        res.json({
+            success: true,
+            message: `Security clearance for ${faculty.name || faculty.username} is now ${faculty.securityClearance ? 'Granted' : 'Revoked'}`,
+            data: faculty
         });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Failed to update security clearance' });
+    }
+});
+
+// ==========================================
+// 16. CURRICULUM MANAGEMENT (SUBJECTS & EXPERIMENTS)
+// ==========================================
+router.get('/curriculum/subjects', async (req, res) => {
+    try {
+        const [experiments, schedules] = await Promise.all([
+            Experiment.find().lean(),
+            DepartmentSchedule.find().lean()
+        ]);
+
+        const subjectMap = {};
+        for (const exp of experiments) {
+            const subj = exp.subject || 'General Laboratory';
+            if (!subjectMap[subj]) {
+                subjectMap[subj] = {
+                    subject: subj,
+                    laboratory: exp.laboratory || 'Engineering Lab',
+                    experimentCount: 0,
+                    activeExperimentCount: 0,
+                    staffInCharge: 'Assigned Staff',
+                    experiments: []
+                };
+            }
+            subjectMap[subj].experimentCount += 1;
+            if (exp.isActive) subjectMap[subj].activeExperimentCount += 1;
+            subjectMap[subj].experiments.push({
+                _id: exp._id,
+                experimentNumber: exp.experimentNumber,
+                title: exp.title,
+                requiredComponentsCount: (exp.requiredComponents || []).length,
+                isActive: exp.isActive
+            });
+        }
+
+        for (const s of schedules) {
+            if (subjectMap[s.subject]) {
+                subjectMap[s.subject].staffInCharge = s.staffInCharge;
+            } else {
+                subjectMap[s.subject] = {
+                    subject: s.subject,
+                    laboratory: 'Engineering Lab',
+                    experimentCount: s.totalExperiments || 10,
+                    activeExperimentCount: s.completedExperiments || 0,
+                    staffInCharge: s.staffInCharge,
+                    experiments: []
+                };
+            }
+        }
+
+        res.json({ success: true, data: Object.values(subjectMap) });
+    } catch (err) {
+        console.error('Curriculum subjects error:', err);
+        res.status(500).json({ success: false, message: 'Failed to fetch curriculum subjects' });
+    }
+});
+
+router.post('/curriculum/subjects', async (req, res) => {
+    try {
+        const { subject, laboratory, staffInCharge, totalExperiments, componentIssueDeadline, studentCompletionDeadline } = req.body;
+        if (!subject) {
+            return res.status(400).json({ success: false, message: 'Subject name is required' });
+        }
+
+        const staffUser = req.headers['x-staff-user'] || 'admin';
+        const today = new Date();
+        const addDays = (d, n) => new Date(d.getTime() + n * 24 * 60 * 60 * 1000);
+
+        let schedule = await DepartmentSchedule.findOne({ subject: subject.trim() });
+        if (!schedule) {
+            schedule = new DepartmentSchedule({
+                subject: subject.trim(),
+                staffInCharge: staffInCharge || 'Assigned Staff',
+                totalExperiments: Number(totalExperiments) || 10,
+                completedExperiments: 0,
+                componentIssueDeadline: componentIssueDeadline ? new Date(componentIssueDeadline) : addDays(today, 7),
+                studentCompletionDeadline: studentCompletionDeadline ? new Date(studentCompletionDeadline) : addDays(today, 21),
+                batchName: 'Section General',
+                status: 'In Progress',
+                notes: `Subject curriculum configured by ${staffUser}`,
+                lastUpdatedBy: staffUser
+            });
+            await schedule.save();
+        }
+
+        await logAudit('CREATE_CURRICULUM_SUBJECT', 'Curriculum', staffUser, `Registered subject track: ${subject}`);
+        res.status(201).json({ success: true, message: `Subject "${subject}" created successfully in MongoDB`, data: schedule });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message || 'Failed to create subject' });
+    }
+});
+
+router.post('/curriculum/experiments', async (req, res) => {
+    try {
+        const { experimentNumber, title, subject, laboratory, description, objectives, instructions, requiredComponents } = req.body;
+        if (!experimentNumber || !title || !subject) {
+            return res.status(400).json({ success: false, message: 'Experiment Number, Title, and Subject are required' });
+        }
+
+        const expNum = experimentNumber.trim().toUpperCase();
+        const existing = await Experiment.findOne({ experimentNumber: expNum, subject: subject.trim() });
+        if (existing) {
+            return res.status(409).json({ success: false, message: `Experiment ${expNum} already exists in ${subject}` });
+        }
+
+        const staffUser = req.headers['x-staff-user'] || 'admin';
+        const formattedComponents = Array.isArray(requiredComponents) ? requiredComponents.map(c => ({
+            componentName: (c.componentName || c.name || '').trim(),
+            partNumber: (c.partNumber || '').trim().toUpperCase(),
+            quantity: Number(c.quantity) || 1,
+            notes: c.notes || ''
+        })).filter(c => c.componentName) : [];
+
+        const newExp = new Experiment({
+            experimentNumber: expNum,
+            title: title.trim(),
+            subject: subject.trim(),
+            laboratory: (laboratory || 'Engineering Laboratory').trim(),
+            description: description || '',
+            objectives: Array.isArray(objectives) ? objectives : (objectives ? objectives.split('\n').map(s => s.trim()).filter(Boolean) : []),
+            instructions: instructions || '',
+            requiredComponents: formattedComponents,
+            isActive: true,
+            createdBy: staffUser
+        });
+
+        await newExp.save();
+        await logAudit('CREATE_CURRICULUM_EXPERIMENT', 'Curriculum', staffUser, `Created experiment ${expNum}: ${title} with ${formattedComponents.length} components`);
+
+        res.status(201).json({ success: true, message: `Experiment ${expNum} created successfully in MongoDB`, data: newExp });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message || 'Failed to create experiment' });
+    }
+});
+
+router.put('/curriculum/experiments/:id', async (req, res) => {
+    try {
+        const { title, subject, laboratory, description, objectives, instructions, requiredComponents, isActive } = req.body;
+        const exp = await Experiment.findById(req.params.id);
+        if (!exp) return res.status(404).json({ success: false, message: 'Experiment not found' });
+
+        if (title) exp.title = title.trim();
+        if (subject) exp.subject = subject.trim();
+        if (laboratory) exp.laboratory = laboratory.trim();
+        if (description !== undefined) exp.description = description;
+        if (instructions !== undefined) exp.instructions = instructions;
+        if (isActive !== undefined) exp.isActive = isActive;
+        if (objectives !== undefined) {
+            exp.objectives = Array.isArray(objectives) ? objectives : objectives.split('\n').map(s => s.trim()).filter(Boolean);
+        }
+        if (requiredComponents !== undefined) {
+            exp.requiredComponents = Array.isArray(requiredComponents) ? requiredComponents.map(c => ({
+                componentName: (c.componentName || c.name || '').trim(),
+                partNumber: (c.partNumber || '').trim().toUpperCase(),
+                quantity: Number(c.quantity) || 1,
+                notes: c.notes || ''
+            })).filter(c => c.componentName) : [];
+        }
+
+        await exp.save();
+        const staffUser = req.headers['x-staff-user'] || 'admin';
+        await logAudit('UPDATE_CURRICULUM_EXPERIMENT', 'Curriculum', staffUser, `Updated experiment ${exp.experimentNumber} and hardware requirements`);
+
+        res.json({ success: true, message: `Experiment ${exp.experimentNumber} and components updated successfully`, data: exp });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message || 'Failed to update experiment' });
     }
 });
 

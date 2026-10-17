@@ -36,10 +36,17 @@ const departmentScheduleSchema = new mongoose.Schema({
         type: String,
         default: 'Batch 2026 - Section A'
     },
+    milestone: {
+        type: String,
+        default: 'Lab Practical Milestone'
+    },
+    dueDate: {
+        type: Date
+    },
     status: {
         type: String,
-        enum: ['On Track', 'In Progress', 'Action Required', 'Completed'],
-        default: 'In Progress'
+        enum: ['Pending', 'Done', 'Overdue', 'On Track', 'In Progress', 'Action Required', 'Completed'],
+        default: 'Pending'
     },
     notes: {
         type: String,

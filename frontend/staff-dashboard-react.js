@@ -1,11 +1,8 @@
 /**
- * HOD OF DEP - Executive Department Control Panel (Power BI Style React Application)
+ * HOD EXECUTIVE CONTROL PANEL - PODX (Power BI React Application)
  * Built with React 18 & Chart.js
- * Tracks:
- *  - Subject-wise experiment completion by staff
- *  - Component handover deadlines (date until staff will give components)
- *  - Student experiment completion target deadlines
- *  - Real-time persistence to MongoDB (staff_portal)
+ * Strictly connected to MongoDB (staff_portal & student_portal)
+ * Zero hardcoded figures, zero placeholder buttons, full CRUD operations.
  */
 
 const { useState, useEffect, useMemo, useRef } = React;
@@ -27,6 +24,13 @@ function formatDate(dateStr) {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+function formatDateTime(dateStr) {
+    if (!dateStr) return 'N/A';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return 'N/A';
+    return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
 function toInputDate(dateStr) {
     if (!dateStr) return '';
     const d = new Date(dateStr);
@@ -43,23 +47,28 @@ function getDaysRemaining(targetDateStr) {
 }
 
 // ==========================================
-// MAIN HOD CONTROL PANEL COMPONENT
+// MAIN HOD CONTROL PANEL APPLICATION
 // ==========================================
 function HodDashboardApp() {
     const currentUser = localStorage.getItem('username') || 'admin';
+
+    // Core Data States
     const [overview, setOverview] = useState(null);
     const [schedules, setSchedules] = useState([]);
+    const [facultyList, setFacultyList] = useState([]);
+    const [components, setComponents] = useState([]);
+    const [experiments, setExperiments] = useState([]);
+    const [auditLogs, setAuditLogs] = useState([]);
+    const [curriculumSubjects, setCurriculumSubjects] = useState([]);
+
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('hod-analytics');
     const [filterSubject, setFilterSubject] = useState('ALL');
     const [searchQuery, setSearchQuery] = useState('');
-    const [editingSchedule, setEditingSchedule] = useState(null);
     const [toast, setToast] = useState(null);
     const [isSaving, setIsSaving] = useState(false);
-    const [aiRunning, setAiRunning] = useState(false);
-    const [aiResultModal, setAiResultModal] = useState(null);
 
-    // Department settings state (Admin editable)
+    // Department Settings (Admin / HOD)
     const [departmentMeta, setDepartmentMeta] = useState({
         departmentName: 'Department of Electrical & Computer Engineering',
         hodName: 'Admin (HOD)',
@@ -68,11 +77,16 @@ function HodDashboardApp() {
         lastUpdatedBy: 'admin'
     });
     const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+    // Schedule / Milestone Modals
     const [isAddScheduleModalOpen, setIsAddScheduleModalOpen] = useState(false);
+    const [editingSchedule, setEditingSchedule] = useState(null);
     const [newSchedule, setNewSchedule] = useState({
         subject: '',
         staffInCharge: 'Prof. Faculty Member',
         batchName: 'Section General',
+        milestone: 'Hardware Demonstration & Circuit Handover',
+        dueDate: new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0],
         totalExperiments: 10,
         completedExperiments: 0,
         componentIssueDeadline: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
@@ -81,24 +95,65 @@ function HodDashboardApp() {
         notes: ''
     });
 
-    // Sub-data for additional operational tabs
-    const [experiments, setExperiments] = useState([]);
-    const [manuals, setManuals] = useState([]);
-    const [components, setComponents] = useState([]);
+    // Faculty Modals
+    const [isAddFacultyModalOpen, setIsAddFacultyModalOpen] = useState(false);
+    const [editingFaculty, setEditingFaculty] = useState(null);
+    const [newFaculty, setNewFaculty] = useState({
+        name: '',
+        email: '',
+        username: '',
+        password: '',
+        assignedSubjects: '',
+        status: 'Active',
+        securityClearance: true
+    });
+
+    // Hardware Stock Modals
+    const [isAddComponentModalOpen, setIsAddComponentModalOpen] = useState(false);
+    const [editingComponent, setEditingComponent] = useState(null);
+    const [adjustingComponent, setAdjustingComponent] = useState(null);
+    const [adjustStockForm, setAdjustStockForm] = useState({ quantityChange: 1, remarks: 'Restocking' });
+    const [newComponent, setNewComponent] = useState({
+        name: '',
+        partNumber: '',
+        type: 'Electronic Components',
+        rackNumber: 'Rack-A1',
+        totalQuantity: 25,
+        minimumStockLevel: 5,
+        condition: 'Good',
+        specifications: ''
+    });
+
+    // Curriculum Modals
+    const [isAddSubjectModalOpen, setIsAddSubjectModalOpen] = useState(false);
+    const [newSubject, setNewSubject] = useState({ subjectName: '', staffInCharge: 'Prof. Faculty Member' });
+    const [isAddExperimentModalOpen, setIsAddExperimentModalOpen] = useState(false);
+    const [editingCurriculumExp, setEditingCurriculumExp] = useState(null);
+    const [curriculumExpForm, setCurriculumExpForm] = useState({
+        experimentNumber: '',
+        title: '',
+        subject: '',
+        staffInCharge: 'Prof. Faculty Member',
+        aim: '',
+        description: '',
+        requiredComponents: [
+            { componentName: 'Operational Amplifier IC 741', partNumber: 'IC-LM741', quantity: 2, notes: '8-pin DIP' }
+        ]
+    });
 
     const showToast = (message, type = 'success') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 4000);
     };
 
-    // Load All Data from Backend
+    // Load Overview Data from Backend
     const fetchData = async () => {
         try {
             setLoading(true);
             const res = await fetch(`${API_BASE}/hod/overview`, { headers: getAuthHeaders() });
             const json = await res.json();
             if (json.success && json.data) {
-                setOverview(json.data.summary);
+                setOverview(json.data);
                 setSchedules(json.data.schedules || []);
                 if (json.data.departmentName) {
                     setDepartmentMeta({
@@ -118,37 +173,270 @@ function HodDashboardApp() {
         }
     };
 
+    // Lazy loader for specific views
+    const loadTabData = async (tab) => {
+        setActiveTab(tab);
+        try {
+            if (tab === 'faculty') {
+                const res = await fetch(`${API_BASE}/faculty`, { headers: getAuthHeaders() });
+                const json = await res.json();
+                if (json.success) setFacultyList(json.data || []);
+            } else if (tab === 'inventory') {
+                const res = await fetch(`${API_BASE}/components`, { headers: getAuthHeaders() });
+                const json = await res.json();
+                if (json.success) setComponents(json.data || []);
+            } else if (tab === 'experiments') {
+                const res = await fetch(`${API_BASE}/experiments`, { headers: getAuthHeaders() });
+                const json = await res.json();
+                if (json.success) setExperiments(json.data || []);
+            } else if (tab === 'security') {
+                const [fRes, aRes] = await Promise.all([
+                    fetch(`${API_BASE}/faculty`, { headers: getAuthHeaders() }),
+                    fetch(`${API_BASE}/audit-logs`, { headers: getAuthHeaders() })
+                ]);
+                const [fJson, aJson] = await Promise.all([fRes.json(), aRes.json()]);
+                if (fJson.success) setFacultyList(fJson.data || []);
+                if (aJson.success) setAuditLogs(aJson.data || []);
+            } else if (tab === 'curriculum') {
+                const [sRes, eRes] = await Promise.all([
+                    fetch(`${API_BASE}/curriculum/subjects`, { headers: getAuthHeaders() }),
+                    fetch(`${API_BASE}/experiments`, { headers: getAuthHeaders() })
+                ]);
+                const [sJson, eJson] = await Promise.all([sRes.json(), eRes.json()]);
+                if (sJson.success) setCurriculumSubjects(sJson.data || []);
+                if (eJson.success) setExperiments(eJson.data || []);
+            }
+        } catch (e) {
+            console.error('Tab data load error:', e);
+        }
+    };
+
     useEffect(() => {
         fetchData();
     }, []);
 
-    // Load sub-tabs lazily
-    const loadSubTabData = async (tab) => {
-        setActiveTab(tab);
+    // -------------------------------------------------------------
+    // FACULTY ACTIONS
+    // -------------------------------------------------------------
+    const handleCreateFaculty = async (e) => {
+        e.preventDefault();
+        if (!newFaculty.username || !newFaculty.password) {
+            showToast('Username and password are required', 'error');
+            return;
+        }
         try {
-            if (tab === 'manuals' && manuals.length === 0) {
-                const res = await fetch(`${API_BASE}/manuals`, { headers: getAuthHeaders() });
-                const json = await res.json();
-                if (json.success) setManuals(json.data || []);
-            } else if (tab === 'experiments' && experiments.length === 0) {
-                const res = await fetch(`${API_BASE}/experiments`, { headers: getAuthHeaders() });
-                const json = await res.json();
-                if (json.success) setExperiments(json.data || []);
-            } else if (tab === 'inventory' && components.length === 0) {
-                const res = await fetch(`${API_BASE}/components`, { headers: getAuthHeaders() });
-                const json = await res.json();
-                if (json.success) setComponents(json.data || []);
+            setIsSaving(true);
+            const res = await fetch(`${API_BASE}/faculty`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(newFaculty)
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`Faculty member "${newFaculty.name || newFaculty.username}" added!`, 'success');
+                setIsAddFacultyModalOpen(false);
+                setNewFaculty({
+                    name: '',
+                    email: '',
+                    username: '',
+                    password: '',
+                    assignedSubjects: '',
+                    status: 'Active',
+                    securityClearance: true
+                });
+                loadTabData('faculty');
+            } else {
+                showToast(json.message || 'Failed to add faculty', 'error');
             }
-        } catch (e) {
-            console.error('Sub tab fetch error:', e);
+        } catch (err) {
+            showToast('Error saving faculty member to MongoDB', 'error');
+        } finally {
+            setIsSaving(false);
         }
     };
 
-    // Save Schedule Edit directly to MongoDB
+    const handleUpdateFaculty = async (e) => {
+        e.preventDefault();
+        if (!editingFaculty) return;
+        try {
+            setIsSaving(true);
+            const res = await fetch(`${API_BASE}/faculty/${editingFaculty._id}`, {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(editingFaculty)
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast('Faculty member details updated in MongoDB!', 'success');
+                setEditingFaculty(null);
+                loadTabData('faculty');
+            } else {
+                showToast(json.message || 'Failed to update faculty', 'error');
+            }
+        } catch (err) {
+            showToast('Error updating faculty member', 'error');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleToggleFacultyStatus = async (id, currentStatus) => {
+        try {
+            const res = await fetch(`${API_BASE}/faculty/${id}/status`, {
+                method: 'PATCH',
+                headers: getAuthHeaders()
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`Status toggled to ${json.data.status}`, 'success');
+                loadTabData('faculty');
+            }
+        } catch (e) {
+            showToast('Failed to toggle status', 'error');
+        }
+    };
+
+    const handleToggleClearance = async (id, staffName) => {
+        try {
+            const res = await fetch(`${API_BASE}/faculty/${id}/clearance`, {
+                method: 'PATCH',
+                headers: getAuthHeaders()
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`Security clearance for ${staffName} is now ${json.data.securityClearance ? 'Granted' : 'Revoked'}`, 'success');
+                loadTabData(activeTab);
+            }
+        } catch (e) {
+            showToast('Failed to toggle security clearance', 'error');
+        }
+    };
+
+    // -------------------------------------------------------------
+    // HARDWARE STOCK ACTIONS
+    // -------------------------------------------------------------
+    const handleCreateComponent = async (e) => {
+        e.preventDefault();
+        if (!newComponent.name) {
+            showToast('Component name is required', 'error');
+            return;
+        }
+        try {
+            setIsSaving(true);
+            const res = await fetch(`${API_BASE}/components`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(newComponent)
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`Hardware component "${newComponent.name}" added to stock!`, 'success');
+                setIsAddComponentModalOpen(false);
+                setNewComponent({
+                    name: '',
+                    partNumber: '',
+                    type: 'Electronic Components',
+                    rackNumber: 'Rack-A1',
+                    totalQuantity: 25,
+                    minimumStockLevel: 5,
+                    condition: 'Good',
+                    specifications: ''
+                });
+                loadTabData('inventory');
+            } else {
+                showToast(json.message || 'Failed to add component', 'error');
+            }
+        } catch (err) {
+            showToast('Error saving hardware stock', 'error');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleUpdateComponent = async (e) => {
+        e.preventDefault();
+        if (!editingComponent) return;
+        try {
+            setIsSaving(true);
+            const res = await fetch(`${API_BASE}/components/${editingComponent._id}`, {
+                method: 'PUT',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(editingComponent)
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`Component "${editingComponent.name}" updated!`, 'success');
+                setEditingComponent(null);
+                loadTabData('inventory');
+            } else {
+                showToast(json.message || 'Failed to update component', 'error');
+            }
+        } catch (err) {
+            showToast('Error updating component', 'error');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const handleAdjustStock = async (e) => {
+        e.preventDefault();
+        if (!adjustingComponent) return;
+        try {
+            setIsSaving(true);
+            const res = await fetch(`${API_BASE}/components/${adjustingComponent._id}/adjust`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(adjustStockForm)
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`Stock updated for ${adjustingComponent.name} (${adjustStockForm.quantityChange > 0 ? '+' : ''}${adjustStockForm.quantityChange})`, 'success');
+                setAdjustingComponent(null);
+                loadTabData('inventory');
+            } else {
+                showToast(json.message || 'Failed to adjust stock', 'error');
+            }
+        } catch (err) {
+            showToast('Error adjusting component stock', 'error');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // -------------------------------------------------------------
+    // SCHEDULE / MILESTONE ACTIONS
+    // -------------------------------------------------------------
+    const handleCreateSchedule = async (e) => {
+        e.preventDefault();
+        if (!newSchedule.subject) {
+            showToast('Please specify subject and milestone', 'error');
+            return;
+        }
+        try {
+            setIsSaving(true);
+            const res = await fetch(`${API_BASE}/hod/schedules`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(newSchedule)
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`Milestone for "${newSchedule.subject}" registered in MongoDB!`, 'success');
+                setIsAddScheduleModalOpen(false);
+                fetchData();
+            } else {
+                showToast(json.message || 'Failed to create milestone', 'error');
+            }
+        } catch (err) {
+            showToast('Error creating milestone schedule in MongoDB', 'error');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
     const handleSaveSchedule = async (e) => {
         e.preventDefault();
         if (!editingSchedule) return;
-
         try {
             setIsSaving(true);
             const res = await fetch(`${API_BASE}/hod/schedules/${editingSchedule._id}`, {
@@ -165,13 +453,47 @@ function HodDashboardApp() {
                 showToast(json.message || 'Failed to save schedule', 'error');
             }
         } catch (err) {
-            showToast('Error saving to staff_portal database', 'error');
+            showToast('Error saving to database', 'error');
         } finally {
             setIsSaving(false);
         }
     };
 
-    // Quick Increment/Decrement Finished Experiments
+    const handleToggleMilestoneStatus = async (id, currentStatus) => {
+        const nextStatus = currentStatus === 'Done' ? 'Pending' : 'Done';
+        try {
+            const res = await fetch(`${API_BASE}/hod/schedules/${id}/status`, {
+                method: 'PATCH',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ status: nextStatus })
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`Milestone marked as ${nextStatus}!`, 'success');
+                fetchData();
+            }
+        } catch (e) {
+            showToast('Failed to toggle milestone status', 'error');
+        }
+    };
+
+    const handleDeleteSchedule = async (id, subject) => {
+        if (!window.confirm(`Delete milestone schedule for "${subject}" from MongoDB?`)) return;
+        try {
+            const res = await fetch(`${API_BASE}/hod/schedules/${id}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`Deleted milestone "${subject}"`, 'success');
+                fetchData();
+            }
+        } catch (e) {
+            showToast('Error deleting milestone from MongoDB', 'error');
+        }
+    };
+
     const handleQuickChange = async (schedule, delta) => {
         const nextVal = Math.max(0, Math.min(schedule.totalExperiments || 10, (schedule.completedExperiments || 0) + delta));
         try {
@@ -185,75 +507,99 @@ function HodDashboardApp() {
             });
             const json = await res.json();
             if (json.success) {
-                showToast(`Updated ${schedule.subject}: ${nextVal}/${schedule.totalExperiments} finished`, 'success');
+                showToast(`Updated ${schedule.subject}: ${nextVal}/${schedule.totalExperiments} completed`, 'success');
                 fetchData();
             }
         } catch (e) {
             showToast('Failed to update progress', 'error');
         }
-    // Create New Schedule (Admin)
-    const handleCreateSchedule = async (e) => {
+    };
+
+    // -------------------------------------------------------------
+    // CURRICULUM ACTIONS
+    // -------------------------------------------------------------
+    const handleCreateSubject = async (e) => {
         e.preventDefault();
-        if (!newSchedule.subject || !newSchedule.componentIssueDeadline || !newSchedule.studentCompletionDeadline) {
-            showToast('Please specify subject and both deadlines', 'error');
-            return;
-        }
+        if (!newSubject.subjectName) return;
         try {
             setIsSaving(true);
-            const res = await fetch(`${API_BASE}/hod/schedules`, {
+            const res = await fetch(`${API_BASE}/curriculum/subjects`, {
                 method: 'POST',
                 headers: getAuthHeaders(),
-                body: JSON.stringify(newSchedule)
+                body: JSON.stringify(newSubject)
             });
             const json = await res.json();
             if (json.success) {
-                showToast(`Admin created schedule for "${newSchedule.subject}" in MongoDB!`, 'success');
-                setIsAddScheduleModalOpen(false);
-                setNewSchedule({
-                    subject: '',
-                    staffInCharge: 'Prof. Faculty Member',
-                    batchName: 'Section General',
-                    totalExperiments: 10,
-                    completedExperiments: 0,
-                    componentIssueDeadline: new Date(Date.now() + 7 * 86400000).toISOString().split('T')[0],
-                    studentCompletionDeadline: new Date(Date.now() + 21 * 86400000).toISOString().split('T')[0],
-                    status: 'In Progress',
-                    notes: ''
-                });
-                fetchData();
+                showToast(`Subject "${newSubject.subjectName}" added to curriculum!`, 'success');
+                setIsAddSubjectModalOpen(false);
+                setNewSubject({ subjectName: '', staffInCharge: 'Prof. Faculty Member' });
+                loadTabData('curriculum');
             } else {
-                showToast(json.message || 'Failed to create schedule', 'error');
+                showToast(json.message || 'Failed to add subject', 'error');
             }
-        } catch (err) {
-            showToast('Error creating schedule in staff_portal', 'error');
+        } catch (e) {
+            showToast('Error creating subject in curriculum', 'error');
         } finally {
             setIsSaving(false);
         }
     };
 
-    // Delete Schedule (Admin)
-    const handleDeleteSchedule = async (id, subject) => {
-        if (!window.confirm(`Are you sure you want to delete the schedule for "${subject}"? This removes it permanently from MongoDB.`)) {
-            return;
-        }
+    const handleSaveCurriculumExperiment = async (e) => {
+        e.preventDefault();
         try {
-            const res = await fetch(`${API_BASE}/hod/schedules/${id}`, {
-                method: 'DELETE',
-                headers: getAuthHeaders()
+            setIsSaving(true);
+            const url = editingCurriculumExp
+                ? `${API_BASE}/curriculum/experiments/${editingCurriculumExp._id}`
+                : `${API_BASE}/curriculum/experiments`;
+            const method = editingCurriculumExp ? 'PUT' : 'POST';
+
+            const res = await fetch(url, {
+                method,
+                headers: getAuthHeaders(),
+                body: JSON.stringify(curriculumExpForm)
             });
             const json = await res.json();
             if (json.success) {
-                showToast(`Deleted schedule "${subject}" from MongoDB`, 'success');
-                fetchData();
+                showToast(`Saved experiment ${curriculumExpForm.experimentNumber} & apparatus requirements!`, 'success');
+                setIsAddExperimentModalOpen(false);
+                setEditingCurriculumExp(null);
+                loadTabData('curriculum');
             } else {
-                showToast(json.message || 'Failed to delete schedule', 'error');
+                showToast(json.message || 'Failed to save experiment', 'error');
             }
         } catch (e) {
-            showToast('Error deleting schedule from MongoDB', 'error');
+            showToast('Error saving experiment to database', 'error');
+        } finally {
+            setIsSaving(false);
         }
     };
 
-    // Save Department Settings (Admin)
+    const handleAddApparatusRow = () => {
+        setCurriculumExpForm(prev => ({
+            ...prev,
+            requiredComponents: [
+                ...prev.requiredComponents,
+                { componentName: '', partNumber: 'PRT-' + Math.floor(10000 + Math.random() * 90000), quantity: 1, notes: '' }
+            ]
+        }));
+    };
+
+    const handleRemoveApparatusRow = (index) => {
+        setCurriculumExpForm(prev => ({
+            ...prev,
+            requiredComponents: prev.requiredComponents.filter((_, i) => i !== index)
+        }));
+    };
+
+    const handleApparatusRowChange = (index, field, value) => {
+        setCurriculumExpForm(prev => {
+            const nextList = [...prev.requiredComponents];
+            nextList[index] = { ...nextList[index], [field]: value };
+            return { ...prev, requiredComponents: nextList };
+        });
+    };
+
+    // Department Profile Save
     const handleSaveDepartmentProfile = async (e) => {
         e.preventDefault();
         try {
@@ -265,14 +611,14 @@ function HodDashboardApp() {
             });
             const json = await res.json();
             if (json.success) {
-                showToast('Admin updated Department Settings in MongoDB!', 'success');
+                showToast('Department Settings updated in MongoDB!', 'success');
                 setIsProfileModalOpen(false);
                 fetchData();
             } else {
                 showToast(json.message || 'Failed to update department profile', 'error');
             }
         } catch (err) {
-            showToast('Error saving department settings to staff_portal', 'error');
+            showToast('Error saving department settings', 'error');
         } finally {
             setIsSaving(false);
         }
@@ -286,31 +632,7 @@ function HodDashboardApp() {
         window.location.href = 'index.html';
     };
 
-    // Run AI Multi-Curriculum Department Analyzer & Auto-Map Schedules
-    const handleRunAIAnalysis = async () => {
-        try {
-            setAiRunning(true);
-            showToast('AI Model running: analyzing manuals, components, and student sessions...', 'success');
-            const res = await fetch(`${API_BASE}/hod/ai-analyze`, {
-                method: 'POST',
-                headers: getAuthHeaders()
-            });
-            const json = await res.json();
-            if (json.success && json.data) {
-                setAiResultModal(json.data);
-                showToast('AI Analysis Complete! Synced into MongoDB staff_portal.', 'success');
-                await fetchData();
-            } else {
-                showToast(json.message || 'AI Analysis failed', 'error');
-            }
-        } catch (err) {
-            showToast('Error executing AI Department Analysis', 'error');
-        } finally {
-            setAiRunning(false);
-        }
-    };
-
-    // Filtered schedules with real-time search support
+    // Filtered schedules for Overview table
     const filteredSchedules = useMemo(() => {
         let list = schedules;
         if (filterSubject !== 'ALL') {
@@ -318,9 +640,10 @@ function HodDashboardApp() {
         }
         if (searchQuery.trim()) {
             const q = searchQuery.toLowerCase();
-            list = list.filter(s => 
+            list = list.filter(s =>
                 (s.subject && s.subject.toLowerCase().includes(q)) ||
                 (s.staffInCharge && s.staffInCharge.toLowerCase().includes(q)) ||
+                (s.milestone && s.milestone.toLowerCase().includes(q)) ||
                 (s.batchName && s.batchName.toLowerCase().includes(q)) ||
                 (s.status && s.status.toLowerCase().includes(q))
             );
@@ -349,10 +672,10 @@ function HodDashboardApp() {
                 </div>
 
                 <nav className="hod-nav">
-                    {/* 1. Overview (Active Pill Item with Neon Mint/Cyan Gradient) */}
+                    {/* 1. Overview */}
                     <button
                         className={`nav-pill-btn ${activeTab === 'hod-analytics' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('hod-analytics')}
+                        onClick={() => { setActiveTab('hod-analytics'); fetchData(); }}
                         title="Executive Dashboard Overview"
                     >
                         <div className="nav-circle-icon">
@@ -365,42 +688,11 @@ function HodDashboardApp() {
                         <span>Overview</span>
                     </button>
 
-                    {/* 2. Staff Timelines & Deadlines */}
+                    {/* 2. Staff Faculty */}
                     <button
-                        className={`nav-pill-btn ${activeTab === 'schedules' ? 'active' : ''}`}
-                        onClick={() => setActiveTab('schedules')}
-                        title="Staff Deadlines & Milestones"
-                    >
-                        <div className="nav-circle-icon">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-                                <polyline points="9 22 9 12 15 12 15 22" />
-                            </svg>
-                        </div>
-                        <span>Staff Timelines</span>
-                    </button>
-
-                    {/* 3. Curriculum Tracking */}
-                    <button
-                        className="nav-pill-btn"
-                        onClick={() => { setActiveTab('hod-analytics'); showToast('Showing curriculum progress tracking table', 'success'); }}
-                        title="Curriculum Tracking"
-                    >
-                        <div className="nav-circle-icon">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                                <circle cx="12" cy="12" r="10" />
-                                <polyline points="8 12 12 16 16 12" />
-                                <line x1="12" y1="8" x2="12" y2="16" />
-                            </svg>
-                        </div>
-                        <span>Curriculum</span>
-                    </button>
-
-                    {/* 4. Staff Faculty In-Charge */}
-                    <button
-                        className="nav-pill-btn"
-                        onClick={() => { setActiveTab('hod-analytics'); showToast('Faculty In-Charge list verified in MongoDB', 'success'); }}
-                        title="Faculty In-Charge"
+                        className={`nav-pill-btn ${activeTab === 'faculty' ? 'active' : ''}`}
+                        onClick={() => loadTabData('faculty')}
+                        title="Staff Faculty Management"
                     >
                         <div className="nav-circle-icon">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -412,43 +704,11 @@ function HodDashboardApp() {
                         <span>Staff Faculty</span>
                     </button>
 
-                    {/* 5. Lab Security & Approvals */}
-                    <button
-                        className="nav-pill-btn"
-                        onClick={() => showToast('All laboratory stations verified with security clearance', 'success')}
-                        title="Lab Security & Access"
-                    >
-                        <div className="nav-circle-icon">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
-                            </svg>
-                        </div>
-                        <span>Lab Security</span>
-                    </button>
-
-                    {/* 6. Lab Manuals (Docling AI) */}
-                    <button
-                        className={`nav-pill-btn ${activeTab === 'manuals' ? 'active' : ''}`}
-                        onClick={() => loadSubTabData('manuals')}
-                        title="Uploaded PDF Guides & Docling AI"
-                    >
-                        <div className="nav-circle-icon">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                                <polyline points="14 2 14 8 20 8" />
-                                <line x1="16" y1="13" x2="8" y2="13" />
-                                <line x1="16" y1="17" x2="8" y2="17" />
-                                <polyline points="10 9 9 9 8 9" />
-                            </svg>
-                        </div>
-                        <span>Lab Manuals (AI)</span>
-                    </button>
-
-                    {/* 7. Hardware Inventory */}
+                    {/* 3. Hardware Stock */}
                     <button
                         className={`nav-pill-btn ${activeTab === 'inventory' ? 'active' : ''}`}
-                        onClick={() => loadSubTabData('inventory')}
-                        title="Hardware Stock & Components"
+                        onClick={() => loadTabData('inventory')}
+                        title="Hardware Stock & Component Requisition"
                     >
                         <div className="nav-circle-icon">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -460,11 +720,25 @@ function HodDashboardApp() {
                         <span>Hardware Stock</span>
                     </button>
 
-                    {/* 8. Experiments Catalog */}
+                    {/* 4. Lab Security */}
+                    <button
+                        className={`nav-pill-btn ${activeTab === 'security' ? 'active' : ''}`}
+                        onClick={() => loadTabData('security')}
+                        title="Staff Security Clearance & Audit Logs"
+                    >
+                        <div className="nav-circle-icon">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+                            </svg>
+                        </div>
+                        <span>Lab Security</span>
+                    </button>
+
+                    {/* 5. Experiments */}
                     <button
                         className={`nav-pill-btn ${activeTab === 'experiments' ? 'active' : ''}`}
-                        onClick={() => loadSubTabData('experiments')}
-                        title="All 40 Laboratory Experiments"
+                        onClick={() => loadTabData('experiments')}
+                        title="Department Experiments Catalog & Student Submissions"
                     >
                         <div className="nav-circle-icon">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -475,9 +749,39 @@ function HodDashboardApp() {
                         </div>
                         <span>Experiments</span>
                     </button>
+
+                    {/* 6. Staff Timelines */}
+                    <button
+                        className={`nav-pill-btn ${activeTab === 'schedules' ? 'active' : ''}`}
+                        onClick={() => { setActiveTab('schedules'); fetchData(); }}
+                        title="Staff Milestone Deadlines & Tracking"
+                    >
+                        <div className="nav-circle-icon">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                                <circle cx="12" cy="12" r="10" />
+                                <polyline points="12 6 12 12 16 14" />
+                            </svg>
+                        </div>
+                        <span>Staff Timelines</span>
+                    </button>
+
+                    {/* 7. Curriculum */}
+                    <button
+                        className={`nav-pill-btn ${activeTab === 'curriculum' ? 'active' : ''}`}
+                        onClick={() => loadTabData('curriculum')}
+                        title="Curriculum Subjects & Apparatus Requirements"
+                    >
+                        <div className="nav-circle-icon">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+                                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                            </svg>
+                        </div>
+                        <span>Curriculum</span>
+                    </button>
                 </nav>
 
-                {/* HOD User Profile Bottom Card */}
+                {/* HOD Profile Bottom Card */}
                 <div className="hod-user-card">
                     <div className="user-avatar-podx">
                         {currentUser === 'admin' ? 'AD' : currentUser.substring(0, 2).toUpperCase()}
@@ -486,9 +790,9 @@ function HodDashboardApp() {
                         <strong>{currentUser === 'admin' ? 'Admin (HOD)' : currentUser}</strong>
                         <p>Executive Head of Dept</p>
                     </div>
-                    <button 
-                        className="logout-icon-btn-podx" 
-                        onClick={handleLogout} 
+                    <button
+                        className="logout-icon-btn-podx"
+                        onClick={handleLogout}
                         title="Sign Out to Login Portal"
                     >
                         ⎋
@@ -505,11 +809,11 @@ function HodDashboardApp() {
                         <p>{departmentMeta.academicYear} | Head of Dept: <strong>{departmentMeta.hodName}</strong> (Live MongoDB staff_portal)</p>
                     </div>
 
-                    {/* Center Pill Search Bar */}
+                    {/* Center Search Bar */}
                     <div className="topbar-search-pill">
                         <input
                             type="text"
-                            placeholder="Search curriculum, staff in-charge, components..."
+                            placeholder="Search records, staff in-charge, part numbers..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
@@ -523,9 +827,9 @@ function HodDashboardApp() {
 
                     {/* Top Right Action Controls */}
                     <div className="topbar-actions">
-                        <button 
-                            className="circular-action-btn" 
-                            title="Department Settings (Admin / HOD)" 
+                        <button
+                            className="circular-action-btn"
+                            title="Department Settings (Admin / HOD)"
                             onClick={() => setIsProfileModalOpen(true)}
                         >
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
@@ -533,42 +837,36 @@ function HodDashboardApp() {
                                 <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
                             </svg>
                         </button>
-                        <button className="circular-action-btn" title="Security & Permissions" onClick={() => showToast('Security protocols verified for HOD session', 'success')}>
+                        <button
+                            className="circular-action-btn"
+                            title="Lab Security Clearance"
+                            onClick={() => loadTabData('security')}
+                        >
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-                                <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
                             </svg>
                         </button>
-                        <button className="circular-action-btn" title="Live Database Sync" onClick={fetchData}>
+                        <button
+                            className="circular-action-btn"
+                            title="Hardware Stock Allocation"
+                            onClick={() => loadTabData('inventory')}
+                        >
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                            </svg>
+                        </button>
+                        <button
+                            className="circular-action-btn"
+                            title="Live Database Sync"
+                            onClick={() => { fetchData(); showToast('Synchronized with live MongoDB database!', 'success'); }}
+                        >
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
                                 <ellipse cx="12" cy="5" rx="9" ry="3" />
                                 <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
                                 <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
                             </svg>
                         </button>
-                        <button className="circular-action-btn" title="Hardware Stock Allocation" onClick={() => loadSubTabData('inventory')}>
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                            </svg>
-                        </button>
-                        <button className="circular-action-btn" title="Run AI Department Analyzer" onClick={handleRunAIAnalysis}>
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
-                                <rect x="3" y="11" width="18" height="10" rx="2" />
-                                <circle cx="12" cy="5" r="2" />
-                                <path d="M12 7v4" />
-                                <line x1="8" y1="16" x2="8" y2="16" />
-                                <line x1="16" y1="16" x2="16" y2="16" />
-                            </svg>
-                        </button>
-                        <button className="circular-action-btn" title="More Options" onClick={fetchData}>
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                <circle cx="12" cy="12" r="1.5" />
-                                <circle cx="12" cy="5" r="1.5" />
-                                <circle cx="12" cy="19" r="1.5" />
-                            </svg>
-                        </button>
 
-                        {/* Status Pill Button */}
                         <div className="portal-status-pill" onClick={fetchData} title="Click to refresh live database state">
                             <span className="pulse-dot-cyan"></span>
                             <span>v-Lab Portal Active &gt;</span>
@@ -577,53 +875,60 @@ function HodDashboardApp() {
                 </header>
 
                 {/* ========================================================= */}
-                {/* 1. FUTURISTIC 5-CARD MASTER GRID (EXACT REFERENCE UI)    */}
+                {/* 1. OVERVIEW TAB: 5-CARD MASTER GRID & MONITORING TABLE    */}
                 {/* ========================================================= */}
                 {activeTab === 'hod-analytics' && (
                     <div className="hod-dashboard-view">
-                        {/* TOP ROW: 3 CARDS */}
                         <div className="podx-grid-top">
-                            {/* CARD 1: File Manager / Lab Management (Deep Royal Blue) */}
+                            {/* CARD 1: Lab Management */}
                             <div className="podx-card card-filemanager">
                                 <div className="card-header-row">
                                     <span className="card-title-text">Lab Management</span>
                                 </div>
-                                <div className="avatar-centerpiece">
-                                    <svg className="avatar-emblem-svg" viewBox="0 0 100 100" fill="none">
-                                        <circle cx="50" cy="34" r="18" fill="#ffffff" />
-                                        <path d="M22 78 C22 58, 35 52, 50 52 C65 52, 78 58, 78 78 Z" fill="#ffffff" />
-                                    </svg>
+                                <div className="avatar-centerpiece" style={{ flexDirection: 'column', gap: '8px' }}>
+                                    <div style={{ display: 'flex', gap: '1.5rem', justifyContent: 'center', width: '100%', marginTop: '0.5rem' }}>
+                                        <div style={{ textAlign: 'center' }}>
+                                            <div style={{ fontSize: '1.8rem', fontWeight: 900, color: '#ffffff' }}>
+                                                {overview ? overview.labManagement.totalLabs : '0'}
+                                            </div>
+                                            <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase' }}>Labs</span>
+                                        </div>
+                                        <div style={{ textAlign: 'center' }}>
+                                            <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--podx-cyan)' }}>
+                                                {overview ? overview.labManagement.totalExperiments : '0'}
+                                            </div>
+                                            <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase' }}>Experiments</span>
+                                        </div>
+                                        <div style={{ textAlign: 'center' }}>
+                                            <div style={{ fontSize: '1.8rem', fontWeight: 900, color: '#38bdf8' }}>
+                                                {overview ? overview.labManagement.activeSessions : '0'}
+                                            </div>
+                                            <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase' }}>Active Sessions</span>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div className="card-actions-row">
                                     <button
                                         className="pill-action-frosted"
-                                        onClick={() => loadSubTabData('manuals')}
-                                        title="Inspect Uploaded Laboratory Manuals"
+                                        onClick={() => loadTabData('experiments')}
+                                        title="View All Laboratory Experiments"
                                     >
-                                        Inspect Manuals
+                                        View Experiments
                                     </button>
                                     <button
                                         className="pill-action-glowing-blue"
-                                        onClick={handleRunAIAnalysis}
-                                        disabled={aiRunning}
-                                        title="Run MK-PATH Docling Document Vision Model"
+                                        onClick={() => loadTabData('curriculum')}
+                                        title="Manage Curriculum & Required Apparatus"
                                     >
-                                        {aiRunning ? 'Analyzing...' : 'AI Docling'}
+                                        Curriculum
                                     </button>
                                 </div>
                             </div>
 
-                            {/* CARD 2: Security / Staff Approvals (Radiant Mint Aquamarine to Emerald) */}
+                            {/* CARD 2: Staff Security */}
                             <div className="podx-card card-security">
                                 <div className="card-header-row">
                                     <span className="card-title-text">Staff Security</span>
-                                    <button className="card-header-icon-btn" title="Options">
-                                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                            <circle cx="12" cy="12" r="1.5" />
-                                            <circle cx="12" cy="5" r="1.5" />
-                                            <circle cx="12" cy="19" r="1.5" />
-                                        </svg>
-                                    </button>
                                 </div>
                                 <div className="security-badges-container">
                                     <div className="security-badge-item">
@@ -636,7 +941,7 @@ function HodDashboardApp() {
                                         </div>
                                         <div className="badge-caption-block">
                                             <strong>Assigned Faculty</strong>
-                                            <span>{overview ? `${overview.totalSubjects} Active Staff` : '4 Active Staff'}</span>
+                                            <span>{overview ? `${overview.staffSecurity.activeStaffCount} Active Staff` : 'No data yet'}</span>
                                         </div>
                                     </div>
                                     <div className="security-badge-item">
@@ -647,74 +952,60 @@ function HodDashboardApp() {
                                         </div>
                                         <div className="badge-caption-block">
                                             <strong>Lab Clearance</strong>
-                                            <span>Full Access Granted</span>
+                                            <span>{overview ? `${overview.staffSecurity.clearedStaffCount} Cleared` : 'No data yet'}</span>
                                         </div>
                                     </div>
                                 </div>
                                 <div className="card-actions-row">
                                     <button
                                         className="pill-action-mint"
-                                        onClick={() => { setActiveTab('schedules'); showToast('Loaded staff schedule timelines', 'success'); }}
+                                        onClick={() => loadTabData('faculty')}
                                     >
                                         Staff Directory
                                     </button>
                                     <button
                                         className="pill-action-mint"
-                                        onClick={() => showToast('Security clearance verified for all 40 lab benches', 'success')}
+                                        onClick={() => loadTabData('security')}
                                     >
                                         Security Audit
                                     </button>
                                 </div>
                             </div>
 
-                            {/* CARD 3: Backups / Analytics (Deep Sapphire Blue with Signature 7-Bar Chart) */}
+                            {/* CARD 3: Experiment Analytics */}
                             <div className="podx-card card-analytics">
                                 <div className="card-header-row">
                                     <span className="card-title-text">Experiment Analytics</span>
-                                    <div className="arrow-circle-pill" onClick={() => setActiveTab('schedules')} title="View detailed milestone timeline">
+                                    <div className="arrow-circle-pill" onClick={() => setActiveTab('schedules')} title="View milestone timeline">
                                         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5">
                                             <polyline points="9 18 15 12 9 6" />
                                         </svg>
                                     </div>
                                 </div>
 
-                                {/* 7 Vertical Glowing Cyan Bar Capsules */}
+                                {/* Dynamic Bars from MongoDB */}
                                 <div className="podx-bar-chart">
-                                    <div className="podx-bar-col">
-                                        <div className="podx-bar-capsule filled" style={{ height: '48%' }}></div>
-                                        <span className="podx-bar-label">IOT</span>
-                                    </div>
-                                    <div className="podx-bar-col">
-                                        <div className="podx-bar-capsule outlined" style={{ height: '85%' }}></div>
-                                        <span className="podx-bar-label">MC</span>
-                                    </div>
-                                    <div className="podx-bar-col">
-                                        <div className="podx-bar-capsule outlined" style={{ height: '65%' }}></div>
-                                        <span className="podx-bar-label">DSP</span>
-                                    </div>
-                                    <div className="podx-bar-col">
-                                        <div className="podx-bar-capsule filled" style={{ height: '40%' }}></div>
-                                        <span className="podx-bar-label">VLSI</span>
-                                    </div>
-                                    <div className="podx-bar-col">
-                                        <div className="podx-bar-capsule tall-glow" style={{ height: '95%' }}></div>
-                                        <span className="podx-bar-label">EMB</span>
-                                    </div>
-                                    <div className="podx-bar-col">
-                                        <div className="podx-bar-capsule outlined" style={{ height: '72%' }}></div>
-                                        <span className="podx-bar-label">AI</span>
-                                    </div>
-                                    <div className="podx-bar-col">
-                                        <div className="podx-bar-capsule filled" style={{ height: '58%' }}></div>
-                                        <span className="podx-bar-label">NET</span>
-                                    </div>
+                                    {(!overview || !overview.analyticsBars || overview.analyticsBars.length === 0) ? (
+                                        <div style={{ color: 'var(--podx-text-muted)', fontSize: '0.8rem', textAlign: 'center', width: '100%', margin: 'auto' }}>
+                                            No data yet
+                                        </div>
+                                    ) : (
+                                        overview.analyticsBars.map((bar, i) => (
+                                            <div key={i} className="podx-bar-col" title={`${bar.subject}: ${bar.completed}/${bar.total} completed (${bar.pct}%)`}>
+                                                <div
+                                                    className={`podx-bar-capsule ${bar.pct >= 80 ? 'tall-glow' : bar.pct >= 40 ? 'filled' : 'outlined'}`}
+                                                    style={{ height: `${Math.max(15, bar.pct)}%` }}
+                                                ></div>
+                                                <span className="podx-bar-label">{bar.code}</span>
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
 
-                                {/* Bottom Toggles */}
                                 <div className="analytics-footer-toggles">
                                     <div className="toggle-pill-item" onClick={() => setActiveTab('schedules')}>
                                         <div className="toggle-dot"></div>
-                                        <span>Tracks &gt;</span>
+                                        <span>Milestones &gt;</span>
                                     </div>
                                     <div className="toggle-pill-item" onClick={fetchData}>
                                         <div className="toggle-dot" style={{ background: '#00f5d4', boxShadow: '0 0 8px #00f5d4' }}></div>
@@ -724,79 +1015,38 @@ function HodDashboardApp() {
                             </div>
                         </div>
 
-                        {/* BOTTOM ROW: 2 WIDE CARDS */}
+                        {/* BOTTOM ROW: 2 CARDS */}
                         <div className="podx-grid-bottom">
-                            {/* CARD 4: Domain Management / Lab Stations (Deep Navy 2x2 Grid) */}
+                            {/* CARD 4: Lab Stations & Hardware */}
                             <div className="podx-card card-domains">
                                 <div className="card-header-row">
                                     <span className="card-title-text">Lab Stations & Hardware</span>
-                                    <button className="card-header-icon-btn" title="Options">
-                                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                            <circle cx="12" cy="12" r="1.5" />
-                                            <circle cx="12" cy="5" r="1.5" />
-                                            <circle cx="12" cy="19" r="1.5" />
-                                        </svg>
-                                    </button>
                                 </div>
 
                                 <div className="stations-2x2-grid">
-                                    <div className="station-pill-capsule" onClick={() => loadSubTabData('inventory')}>
-                                        <div className="capsule-white-avatar">
-                                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                                <rect x="2" y="3" width="20" height="14" rx="2" />
-                                                <line x1="8" y1="21" x2="16" y2="21" />
-                                                <line x1="12" y1="17" x2="12" y2="21" />
-                                            </svg>
-                                        </div>
-                                        <div className="capsule-meta">
-                                            <strong>Microcontroller Benches</strong>
-                                            <span>{overview ? `${overview.availableComponents} Units Active` : '98 Units Active'}</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="station-pill-capsule" onClick={() => loadSubTabData('inventory')}>
-                                        <div className="capsule-white-avatar">
-                                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                                <polygon points="12 2 2 7 12 12 22 7 12 2" />
-                                                <polyline points="2 17 12 22 22 17" />
-                                                <polyline points="2 12 12 17 22 12" />
-                                            </svg>
-                                        </div>
-                                        <div className="capsule-meta">
-                                            <strong>Sensor Test Rigs</strong>
-                                            <span>142 In Stock</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="station-pill-capsule" onClick={() => loadSubTabData('inventory')}>
-                                        <div className="capsule-white-avatar">
-                                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                                <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
-                                            </svg>
-                                        </div>
-                                        <div className="capsule-meta">
-                                            <strong>Oscilloscope Racks</strong>
-                                            <span>24 Station Bays</span>
-                                        </div>
-                                    </div>
-
-                                    <div className="station-pill-capsule" onClick={() => loadSubTabData('inventory')}>
-                                        <div className="capsule-white-avatar">
-                                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5">
-                                                <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
-                                                <line x1="9" y1="9" x2="15" y2="15" />
-                                                <line x1="15" y1="9" x2="9" y2="15" />
-                                            </svg>
-                                        </div>
-                                        <div className="capsule-meta">
-                                            <strong>FPGA Development</strong>
-                                            <span>36 Kits Available</span>
-                                        </div>
-                                    </div>
+                                    {(!overview || !overview.stations || overview.stations.length === 0) ? (
+                                        <div style={{ color: 'var(--podx-text-muted)', padding: '1rem' }}>No data yet</div>
+                                    ) : (
+                                        overview.stations.map((st, i) => (
+                                            <div key={i} className="station-pill-capsule" onClick={() => loadTabData('inventory')} title="Click to view hardware stock">
+                                                <div className="capsule-white-avatar">
+                                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                                        <rect x="2" y="3" width="20" height="14" rx="2" />
+                                                        <line x1="8" y1="21" x2="16" y2="21" />
+                                                        <line x1="12" y1="17" x2="12" y2="21" />
+                                                    </svg>
+                                                </div>
+                                                <div className="capsule-meta">
+                                                    <strong>{st.title}</strong>
+                                                    <span>{st.availableUnits} Available / {st.totalUnits} Total</span>
+                                                </div>
+                                            </div>
+                                        ))
+                                    )}
                                 </div>
                             </div>
 
-                            {/* CARD 5: Performance Stats (Radiant Teal/Mint Gradient with 4 KPI Progress Rows) */}
+                            {/* CARD 5: Performance Stats */}
                             <div className="podx-card card-performance">
                                 <div className="card-header-row">
                                     <span className="card-title-text">Performance Stats</span>
@@ -808,10 +1058,10 @@ function HodDashboardApp() {
                                         <div className="perf-info-block">
                                             <div className="perf-info-header">
                                                 <span>Overall Curriculum Completion</span>
-                                                <span>{overview ? `${overview.overallCompletionRate}%` : '85%'}</span>
+                                                <span>{overview ? `${overview.performanceStats.overallCompletionRate}%` : 'No data yet'}</span>
                                             </div>
                                             <div className="perf-progress-track">
-                                                <div className="perf-progress-fill" style={{ width: `${overview ? overview.overallCompletionRate : 85}%` }}></div>
+                                                <div className="perf-progress-fill" style={{ width: `${overview ? overview.performanceStats.overallCompletionRate : 0}%` }}></div>
                                             </div>
                                         </div>
                                     </div>
@@ -821,10 +1071,10 @@ function HodDashboardApp() {
                                         <div className="perf-info-block">
                                             <div className="perf-info-header">
                                                 <span>Component Handover Rate</span>
-                                                <span>92%</span>
+                                                <span>{overview ? `${overview.performanceStats.componentHandoverRate}%` : 'No data yet'}</span>
                                             </div>
                                             <div className="perf-progress-track">
-                                                <div className="perf-progress-fill" style={{ width: '92%' }}></div>
+                                                <div className="perf-progress-fill" style={{ width: `${overview ? overview.performanceStats.componentHandoverRate : 0}%` }}></div>
                                             </div>
                                         </div>
                                     </div>
@@ -834,10 +1084,10 @@ function HodDashboardApp() {
                                         <div className="perf-info-block">
                                             <div className="perf-info-header">
                                                 <span>Hardware Station Health</span>
-                                                <span>96%</span>
+                                                <span>{overview ? `${overview.performanceStats.hardwareHealthRate}%` : 'No data yet'}</span>
                                             </div>
                                             <div className="perf-progress-track">
-                                                <div className="perf-progress-fill" style={{ width: '96%' }}></div>
+                                                <div className="perf-progress-fill" style={{ width: `${overview ? overview.performanceStats.hardwareHealthRate : 0}%` }}></div>
                                             </div>
                                         </div>
                                     </div>
@@ -846,11 +1096,11 @@ function HodDashboardApp() {
                                         <div className="perf-icon-badge">🎯</div>
                                         <div className="perf-info-block">
                                             <div className="perf-info-header">
-                                                <span>Student Deadline Adherence</span>
-                                                <span>78%</span>
+                                                <span>Student Assessment Pass Rate</span>
+                                                <span>{overview ? `${overview.performanceStats.studentPassRate}%` : 'No data yet'}</span>
                                             </div>
                                             <div className="perf-progress-track">
-                                                <div className="perf-progress-fill" style={{ width: '78%' }}></div>
+                                                <div className="perf-progress-fill" style={{ width: `${overview ? overview.performanceStats.studentPassRate : 0}%` }}></div>
                                             </div>
                                         </div>
                                     </div>
@@ -858,20 +1108,17 @@ function HodDashboardApp() {
                             </div>
                         </div>
 
-                        {/* ========================================================= */}
-                        {/* DETAILED SUBJECT & STAFF PROGRESS MONITORING TABLE        */}
-                        {/* ========================================================= */}
+                        {/* DETAILED SUBJECT & STAFF PROGRESS MONITORING TABLE */}
                         <div className="section-card-podx">
                             <div className="section-header-podx">
                                 <div>
                                     <h3>Subject &amp; Staff Progress Monitoring Table</h3>
-                                    <p>Track how many experiments each staff member has finished, component distribution deadline, and student completion targets</p>
+                                    <p>Track experiment completions per subject, component deadlines, and student targets in MongoDB</p>
                                 </div>
                                 <div className="table-controls-podx">
-                                    <button 
+                                    <button
                                         className="add-schedule-btn-podx"
                                         onClick={() => setIsAddScheduleModalOpen(true)}
-                                        title="Create and map new curriculum track in MongoDB"
                                     >
                                         + Add Subject Schedule
                                     </button>
@@ -904,92 +1151,100 @@ function HodDashboardApp() {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {filteredSchedules.map(s => {
-                                            const pct = Math.round(((s.completedExperiments || 0) / (s.totalExperiments || 10)) * 100);
-                                            const daysToComp = getDaysRemaining(s.componentIssueDeadline);
-                                            const daysToStudent = getDaysRemaining(s.studentCompletionDeadline);
+                                        {filteredSchedules.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="8" style={{ textAlign: 'center', padding: '2rem', color: 'var(--podx-text-muted)' }}>
+                                                    No subject schedules found in database
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            filteredSchedules.map(s => {
+                                                const pct = Math.round(((s.completedExperiments || 0) / (s.totalExperiments || 10)) * 100);
+                                                const daysToComp = getDaysRemaining(s.componentIssueDeadline);
+                                                const daysToStudent = getDaysRemaining(s.studentCompletionDeadline);
 
-                                            return (
-                                                <tr key={s._id}>
-                                                    <td>
-                                                        <strong className="subject-title">{s.subject}</strong>
-                                                        <span className="notes-preview">{s.notes || 'Curriculum on schedule'}</span>
-                                                    </td>
-                                                    <td>
-                                                        <span className="staff-pill-podx">{s.staffInCharge}</span>
-                                                    </td>
-                                                    <td>{s.batchName}</td>
-                                                    <td>
-                                                        <div className="progress-cell-podx">
-                                                            <div className="progress-numbers-podx">
-                                                                <span>{s.completedExperiments || 0} / {s.totalExperiments || 10}</span>
-                                                                <strong style={{ color: 'var(--podx-cyan)' }}>{pct}%</strong>
+                                                return (
+                                                    <tr key={s._id}>
+                                                        <td>
+                                                            <strong className="subject-title">{s.subject}</strong>
+                                                            <span className="notes-preview">{s.notes || s.milestone || 'Curriculum on schedule'}</span>
+                                                        </td>
+                                                        <td>
+                                                            <span className="staff-pill-podx">{s.staffInCharge}</span>
+                                                        </td>
+                                                        <td>{s.batchName || 'General'}</td>
+                                                        <td>
+                                                            <div className="progress-cell-podx">
+                                                                <div className="progress-numbers-podx">
+                                                                    <span>{s.completedExperiments || 0} / {s.totalExperiments || 10}</span>
+                                                                    <strong style={{ color: 'var(--podx-cyan)' }}>{pct}%</strong>
+                                                                </div>
+                                                                <div className="mini-progress-bar-podx">
+                                                                    <div
+                                                                        className="mini-bar-fill-podx"
+                                                                        style={{
+                                                                            width: `${pct}%`,
+                                                                            background: pct >= 80 ? 'linear-gradient(90deg, #10b981, #00f5d4)' : pct >= 50 ? 'linear-gradient(90deg, #2563eb, #00f5d4)' : 'linear-gradient(90deg, #f59e0b, #ef4444)'
+                                                                        }}
+                                                                    ></div>
+                                                                </div>
+                                                                <div className="quick-stepper-podx">
+                                                                    <button
+                                                                        className="step-btn-podx"
+                                                                        onClick={() => handleQuickChange(s, -1)}
+                                                                        title="Decrement finished experiment"
+                                                                    >-</button>
+                                                                    <button
+                                                                        className="step-btn-podx"
+                                                                        onClick={() => handleQuickChange(s, 1)}
+                                                                        title="Mark experiment finished"
+                                                                    >+</button>
+                                                                </div>
                                                             </div>
-                                                            <div className="mini-progress-bar-podx">
-                                                                <div
-                                                                    className="mini-bar-fill-podx"
-                                                                    style={{
-                                                                        width: `${pct}%`,
-                                                                        background: pct >= 80 ? 'linear-gradient(90deg, #10b981, #00f5d4)' : pct >= 50 ? 'linear-gradient(90deg, #2563eb, #00f5d4)' : 'linear-gradient(90deg, #f59e0b, #ef4444)'
-                                                                    }}
-                                                                ></div>
+                                                        </td>
+                                                        <td>
+                                                            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#e2e8f0' }}>
+                                                                📅 {formatDate(s.componentIssueDeadline)}
                                                             </div>
-                                                            <div className="quick-stepper-podx">
+                                                            <span className={`days-pill-podx ${daysToComp < 0 ? 'passed' : daysToComp <= 3 ? 'warn' : 'ok'}`}>
+                                                                {daysToComp < 0 ? 'Passed' : `${daysToComp} days left`}
+                                                            </span>
+                                                        </td>
+                                                        <td>
+                                                            <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#e2e8f0' }}>
+                                                                🎯 {formatDate(s.studentCompletionDeadline)}
+                                                            </div>
+                                                            <span className={`days-pill-podx ${daysToStudent < 0 ? 'passed' : daysToStudent <= 5 ? 'warn' : 'ok'}`}>
+                                                                {daysToStudent < 0 ? 'Overdue' : `${daysToStudent} days left`}
+                                                            </span>
+                                                        </td>
+                                                        <td>
+                                                            <span className={`status-badge-chip-podx ${s.status.toLowerCase().replace(/\s+/g, '-')}`}>
+                                                                {s.status}
+                                                            </span>
+                                                        </td>
+                                                        <td>
+                                                            <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
                                                                 <button
-                                                                    className="step-btn-podx"
-                                                                    onClick={() => handleQuickChange(s, -1)}
-                                                                    title="Decrement finished experiment"
-                                                                >-</button>
+                                                                    className="edit-schedule-btn-podx"
+                                                                    onClick={() => setEditingSchedule({ ...s })}
+                                                                    title="Edit schedule"
+                                                                >
+                                                                    ✏️ Edit
+                                                                </button>
                                                                 <button
-                                                                    className="step-btn-podx"
-                                                                    onClick={() => handleQuickChange(s, 1)}
-                                                                    title="Mark experiment finished"
-                                                                >+</button>
+                                                                    className="delete-schedule-btn-podx"
+                                                                    onClick={() => handleDeleteSchedule(s._id, s.subject)}
+                                                                    title="Delete from MongoDB"
+                                                                >
+                                                                    🗑️
+                                                                </button>
                                                             </div>
-                                                        </div>
-                                                    </td>
-                                                    <td>
-                                                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#e2e8f0' }}>
-                                                            📅 {formatDate(s.componentIssueDeadline)}
-                                                        </div>
-                                                        <span className={`days-pill-podx ${daysToComp < 0 ? 'passed' : daysToComp <= 3 ? 'warn' : 'ok'}`}>
-                                                            {daysToComp < 0 ? 'Passed' : `${daysToComp} days left`}
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        <div style={{ fontSize: '0.82rem', fontWeight: 700, color: '#e2e8f0' }}>
-                                                            🎯 {formatDate(s.studentCompletionDeadline)}
-                                                        </div>
-                                                        <span className={`days-pill-podx ${daysToStudent < 0 ? 'passed' : daysToStudent <= 5 ? 'warn' : 'ok'}`}>
-                                                            {daysToStudent < 0 ? 'Overdue' : `${daysToStudent} days left`}
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        <span className={`status-badge-chip-podx ${s.status.toLowerCase().replace(/\s+/g, '-')}`}>
-                                                            {s.status}
-                                                        </span>
-                                                    </td>
-                                                    <td>
-                                                        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
-                                                            <button
-                                                                className="edit-schedule-btn-podx"
-                                                                onClick={() => setEditingSchedule({ ...s })}
-                                                                title="Update schedule parameters and deadlines"
-                                                            >
-                                                                ✏️ Edit &amp; Map
-                                                            </button>
-                                                            <button
-                                                                className="delete-schedule-btn-podx"
-                                                                onClick={() => handleDeleteSchedule(s._id, s.subject)}
-                                                                title="Delete this schedule from MongoDB"
-                                                            >
-                                                                🗑️
-                                                            </button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
                                     </tbody>
                                 </table>
                             </div>
@@ -997,56 +1252,106 @@ function HodDashboardApp() {
                     </div>
                 )}
 
-                {/* 2. TIMELINE & DEADLINES VIEW */}
-                {activeTab === 'schedules' && (
-                    <div className="hod-dashboard-view">
-                        <div className="section-card">
-                            <div className="section-header">
-                                <div>
-                                    <h3>Staff Milestone Projections & Deadlines Mapping</h3>
-                                    <p>Comprehensive date projections for component provision and final student experiment submissions</p>
-                                </div>
-                            </div>
-                            <TimelineProjectionMap schedules={schedules} detailed={true} />
-                        </div>
-                    </div>
-                )}
-
-                {/* 3. LAB MANUALS TAB */}
-                {activeTab === 'manuals' && (
-                    <div className="section-card">
-                        <div className="section-header">
+                {/* ========================================================= */}
+                {/* 2. STAFF FACULTY TAB                                      */}
+                {/* ========================================================= */}
+                {activeTab === 'faculty' && (
+                    <div className="section-card-podx">
+                        <div className="section-header-podx">
                             <div>
-                                <h3>Uploaded Lab Manuals (IBM Docling AI Analysis)</h3>
-                                <p>PDF laboratory guides parsed with Docling layout-aware document vision</p>
+                                <h3>Staff Faculty Directory & Access</h3>
+                                <p>Manage department professors, assigned subjects, account statuses, and laboratory permissions</p>
                             </div>
+                            <button
+                                className="add-schedule-btn-podx"
+                                onClick={() => setIsAddFacultyModalOpen(true)}
+                            >
+                                + Add Faculty Member
+                            </button>
                         </div>
-                        <div className="table-responsive">
-                            <table className="hod-table">
+
+                        <div className="table-responsive-podx">
+                            <table className="hod-table-podx">
                                 <thead>
                                     <tr>
-                                        <th>Exp #</th>
-                                        <th>Manual Title</th>
-                                        <th>Subject</th>
-                                        <th>Version</th>
-                                        <th>File Size</th>
-                                        <th>Status</th>
+                                        <th>Faculty Member</th>
+                                        <th>Email / Username</th>
+                                        <th>Assigned Subjects</th>
+                                        <th>Account Status</th>
+                                        <th>Lab Clearance</th>
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {manuals.length === 0 ? (
-                                        <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>Loading lab manuals from staff_portal...</td></tr>
+                                    {facultyList.length === 0 ? (
+                                        <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--podx-text-muted)' }}>No faculty members found in database</td></tr>
                                     ) : (
-                                        manuals.map(m => (
-                                            <tr key={m._id}>
-                                                <td><span className="badge-purple">{m.experimentNumber}</span></td>
-                                                <td><strong>{m.title}</strong></td>
-                                                <td>{m.subject}</td>
-                                                <td>v{m.version || 1}</td>
-                                                <td>{Math.round((m.fileSize || 0) / 1024)} KB</td>
-                                                <td><span className="status-badge-chip on-track">Published</span></td>
-                                            </tr>
-                                        ))
+                                        facultyList
+                                            .filter(f => !searchQuery || f.name.toLowerCase().includes(searchQuery.toLowerCase()) || f.username.toLowerCase().includes(searchQuery.toLowerCase()))
+                                            .map(f => (
+                                                <tr key={f._id}>
+                                                    <td>
+                                                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                                            <div className="security-avatar-circle" style={{ width: '36px', height: '36px', fontSize: '0.85rem' }}>
+                                                                {(f.name || f.username).substring(0, 2).toUpperCase()}
+                                                            </div>
+                                                            <div>
+                                                                <strong style={{ color: '#ffffff', display: 'block' }}>{f.name || f.username}</strong>
+                                                                <span style={{ fontSize: '0.74rem', color: 'var(--podx-text-muted)' }}>{f.role}</span>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <div>{f.email || 'N/A'}</div>
+                                                        <span style={{ fontSize: '0.74rem', color: 'var(--podx-cyan)' }}>@{f.username}</span>
+                                                    </td>
+                                                    <td>
+                                                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', maxWidth: '280px' }}>
+                                                            {(!f.assignedSubjects || f.assignedSubjects.length === 0) ? (
+                                                                <span style={{ fontSize: '0.76rem', color: 'var(--podx-text-muted)' }}>General Faculty</span>
+                                                            ) : (
+                                                                f.assignedSubjects.map((sub, i) => (
+                                                                    <span key={i} className="staff-pill-podx" style={{ fontSize: '0.72rem', padding: '0.15rem 0.5rem' }}>
+                                                                        {sub}
+                                                                    </span>
+                                                                ))
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <span className={`status-badge-chip-podx ${f.status === 'Active' ? 'on-track' : 'action-required'}`}>
+                                                            {f.status || 'Active'}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span className={f.securityClearance !== false ? 'badge-clearance-granted' : 'badge-clearance-revoked'}>
+                                                            {f.securityClearance !== false ? '✓ Granted' : '✕ Revoked'}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <div style={{ display: 'flex', gap: '6px' }}>
+                                                            <button
+                                                                className="action-btn-sm primary"
+                                                                onClick={() => setEditingFaculty({ ...f, assignedSubjectsStr: (f.assignedSubjects || []).join(', ') })}
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                className={`action-btn-sm ${f.status === 'Active' ? 'warning' : 'primary'}`}
+                                                                onClick={() => handleToggleFacultyStatus(f._id, f.status)}
+                                                            >
+                                                                {f.status === 'Active' ? 'Deactivate' : 'Activate'}
+                                                            </button>
+                                                            <button
+                                                                className={`action-btn-sm ${f.securityClearance !== false ? 'danger' : 'primary'}`}
+                                                                onClick={() => handleToggleClearance(f._id, f.name || f.username)}
+                                                            >
+                                                                {f.securityClearance !== false ? 'Revoke' : 'Clear'}
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))
                                     )}
                                 </tbody>
                             </table>
@@ -1054,39 +1359,270 @@ function HodDashboardApp() {
                     </div>
                 )}
 
-                {/* 4. EXPERIMENTS CATALOG TAB */}
-                {activeTab === 'experiments' && (
-                    <div className="section-card">
-                        <div className="section-header">
+                {/* ========================================================= */}
+                {/* 3. HARDWARE STOCK TAB                                     */}
+                {/* ========================================================= */}
+                {activeTab === 'inventory' && (
+                    <div className="section-card-podx">
+                        <div className="section-header-podx">
                             <div>
-                                <h3>Department Laboratory Experiments Catalog</h3>
-                                <p>All 40 experiments registered across curriculum subjects in staff_portal</p>
+                                <h3>Hardware Stock Allocation & Components</h3>
+                                <p>Single source of truth component inventory powering student experiment hardware issuance</p>
+                            </div>
+                            <button
+                                className="add-schedule-btn-podx"
+                                onClick={() => setIsAddComponentModalOpen(true)}
+                            >
+                                + Add Component
+                            </button>
+                        </div>
+
+                        <div className="table-responsive-podx">
+                            <table className="hod-table-podx">
+                                <thead>
+                                    <tr>
+                                        <th>Part ID</th>
+                                        <th>Component Name</th>
+                                        <th>Rack / Location</th>
+                                        <th>Total</th>
+                                        <th>Issued</th>
+                                        <th>Available</th>
+                                        <th>Threshold</th>
+                                        <th>Used in Experiments</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {components.length === 0 ? (
+                                        <tr><td colSpan="10" style={{ textAlign: 'center', padding: '2rem', color: 'var(--podx-text-muted)' }}>No hardware components found in database</td></tr>
+                                    ) : (
+                                        components
+                                            .filter(c => !searchQuery || c.name.toLowerCase().includes(searchQuery.toLowerCase()) || c.partNumber.toLowerCase().includes(searchQuery.toLowerCase()))
+                                            .map(c => {
+                                                const isLow = c.isLowStock || c.availableQuantity <= (c.minimumStockLevel || 5);
+                                                return (
+                                                    <tr key={c._id}>
+                                                        <td>
+                                                            <span className="part-tag-code">{c.partNumber}</span>
+                                                        </td>
+                                                        <td>
+                                                            <strong style={{ color: '#ffffff', display: 'block' }}>{c.name}</strong>
+                                                            <span style={{ fontSize: '0.74rem', color: 'var(--podx-text-muted)' }}>{c.type}</span>
+                                                        </td>
+                                                        <td>📍 {c.rackNumber || 'Rack-A1'}</td>
+                                                        <td>{c.totalQuantity}</td>
+                                                        <td>{c.issuedQuantity || Math.max(0, c.totalQuantity - c.availableQuantity)}</td>
+                                                        <td>
+                                                            <strong style={{ color: isLow ? '#f87171' : 'var(--podx-cyan)', fontSize: '0.96rem' }}>
+                                                                {c.availableQuantity}
+                                                            </strong>
+                                                        </td>
+                                                        <td>{c.minimumStockLevel || 5}</td>
+                                                        <td>
+                                                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '2px', maxWidth: '180px' }}>
+                                                                {(!c.usedInExperiments || c.usedInExperiments.length === 0) ? (
+                                                                    <span style={{ fontSize: '0.74rem', color: 'var(--podx-text-muted)' }}>General Lab</span>
+                                                                ) : (
+                                                                    c.usedInExperiments.map(exp => (
+                                                                        <span key={exp} className="exp-used-tag">{exp}</span>
+                                                                    ))
+                                                                )}
+                                                            </div>
+                                                        </td>
+                                                        <td>
+                                                            <span className={isLow ? 'badge-low-stock' : 'badge-in-stock'}>
+                                                                {isLow ? '⚠️ Low Stock' : '✓ In Stock'}
+                                                            </span>
+                                                        </td>
+                                                        <td>
+                                                            <div style={{ display: 'flex', gap: '6px' }}>
+                                                                <button
+                                                                    className="action-btn-sm primary"
+                                                                    onClick={() => setEditingComponent({ ...c })}
+                                                                >
+                                                                    Edit
+                                                                </button>
+                                                                <button
+                                                                    className="action-btn-sm warning"
+                                                                    onClick={() => {
+                                                                        setAdjustingComponent(c);
+                                                                        setAdjustStockForm({ quantityChange: 1, remarks: 'Manual stock update' });
+                                                                    }}
+                                                                >
+                                                                    Adjust
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                )}
+
+                {/* ========================================================= */}
+                {/* 4. LAB SECURITY TAB                                       */}
+                {/* ========================================================= */}
+                {activeTab === 'security' && (
+                    <div>
+                        <div className="section-card-podx" style={{ marginBottom: '1.5rem' }}>
+                            <div className="section-header-podx">
+                                <div>
+                                    <h3>Faculty Laboratory Security Clearance</h3>
+                                    <p>Individual access control toggles for staff members across laboratory stations</p>
+                                </div>
+                            </div>
+
+                            <div className="security-cards-grid">
+                                {facultyList.map(f => {
+                                    const isCleared = f.securityClearance !== false;
+                                    return (
+                                        <div key={f._id} className="security-card-item">
+                                            <div className="security-card-header">
+                                                <div className="security-avatar-circle">
+                                                    {(f.name || f.username).substring(0, 2).toUpperCase()}
+                                                </div>
+                                                <div className="security-card-info">
+                                                    <h4>{f.name || f.username}</h4>
+                                                    <span>{f.email || `@${f.username}`}</span>
+                                                </div>
+                                            </div>
+
+                                            <div className="security-card-actions">
+                                                <span className={isCleared ? 'badge-clearance-granted' : 'badge-clearance-revoked'}>
+                                                    {isCleared ? '✓ Access Granted' : '✕ Access Revoked'}
+                                                </span>
+                                                <button
+                                                    className={`toggle-clearance-btn ${isCleared ? 'revoke' : 'grant'}`}
+                                                    onClick={() => handleToggleClearance(f._id, f.name || f.username)}
+                                                >
+                                                    {isCleared ? 'Revoke Access' : 'Grant Clearance'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </div>
-                        <div className="table-responsive">
-                            <table className="hod-table">
+
+                        {/* Read-Only Audit Log */}
+                        <div className="section-card-podx">
+                            <div className="section-header-podx">
+                                <div>
+                                    <h3>Read-Only Laboratory Security Audit Log</h3>
+                                    <p>Immutable real-time audit trail of logins, component issues, returns, and security clearance actions</p>
+                                </div>
+                                <button className="action-btn-sm primary" onClick={() => loadTabData('security')}>
+                                    ↻ Refresh Log
+                                </button>
+                            </div>
+
+                            <div className="table-responsive-podx">
+                                <table className="hod-table-podx">
+                                    <thead>
+                                        <tr>
+                                            <th>Timestamp</th>
+                                            <th>Action</th>
+                                            <th>Category</th>
+                                            <th>Staff User</th>
+                                            <th>Details</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {auditLogs.length === 0 ? (
+                                            <tr><td colSpan="5" style={{ textAlign: 'center', padding: '2rem', color: 'var(--podx-text-muted)' }}>No audit events recorded yet</td></tr>
+                                        ) : (
+                                            auditLogs.slice(0, 25).map(log => (
+                                                <tr key={log._id}>
+                                                    <td style={{ fontSize: '0.8rem', color: 'var(--podx-text-muted)' }}>
+                                                        {formatDateTime(log.timestamp)}
+                                                    </td>
+                                                    <td>
+                                                        <strong style={{ color: '#ffffff' }}>{log.action}</strong>
+                                                    </td>
+                                                    <td>
+                                                        <span className="staff-pill-podx" style={{ fontSize: '0.72rem' }}>{log.category}</span>
+                                                    </td>
+                                                    <td>@{log.staffUsername || 'admin'}</td>
+                                                    <td style={{ fontSize: '0.82rem', color: 'var(--podx-text-light)' }}>
+                                                        {log.details}
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* ========================================================= */}
+                {/* 5. EXPERIMENTS TAB                                        */}
+                {/* ========================================================= */}
+                {activeTab === 'experiments' && (
+                    <div className="section-card-podx">
+                        <div className="section-header-podx">
+                            <div>
+                                <h3>Department Laboratory Experiments Catalog</h3>
+                                <p>All experiments registered across subjects with real individual student pass &amp; pending counts</p>
+                            </div>
+                        </div>
+
+                        <div className="table-responsive-podx">
+                            <table className="hod-table-podx">
                                 <thead>
                                     <tr>
                                         <th>Exp #</th>
                                         <th>Experiment Title</th>
                                         <th>Subject</th>
-                                        <th>Apparatus / Components</th>
+                                        <th>Staff In-Charge</th>
+                                        <th>Students Completed</th>
+                                        <th>Students Pending</th>
+                                        <th>Required Apparatus</th>
                                         <th>Status</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {experiments.length === 0 ? (
-                                        <tr><td colSpan="5" style={{ textAlign: 'center', padding: '2rem' }}>Loading experiments catalog...</td></tr>
+                                        <tr><td colSpan="8" style={{ textAlign: 'center', padding: '2rem', color: 'var(--podx-text-muted)' }}>No experiments found in database</td></tr>
                                     ) : (
-                                        experiments.slice(0, 15).map(e => (
-                                            <tr key={e._id}>
-                                                <td><span className="badge-purple">{e.experimentNumber}</span></td>
-                                                <td><strong>{e.title}</strong></td>
-                                                <td>{e.subject}</td>
-                                                <td>{e.requiredComponents ? `${e.requiredComponents.length} components assigned` : 'Standard set'}</td>
-                                                <td><span className="status-badge-chip on-track">Active</span></td>
-                                            </tr>
-                                        ))
+                                        experiments
+                                            .filter(e => !searchQuery || e.title.toLowerCase().includes(searchQuery.toLowerCase()) || e.experimentNumber.toLowerCase().includes(searchQuery.toLowerCase()) || e.subject.toLowerCase().includes(searchQuery.toLowerCase()))
+                                            .map(e => (
+                                                <tr key={e._id}>
+                                                    <td>
+                                                        <span className="badge-purple">{e.experimentNumber}</span>
+                                                    </td>
+                                                    <td>
+                                                        <strong style={{ color: '#ffffff' }}>{e.title}</strong>
+                                                    </td>
+                                                    <td>{e.subject}</td>
+                                                    <td>
+                                                        <span className="staff-pill-podx">{e.staffInCharge || 'Assigned Faculty'}</span>
+                                                    </td>
+                                                    <td>
+                                                        <span style={{ color: '#34d399', fontWeight: 800 }}>
+                                                            {e.completedStudentsCount || 0} Students
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <span style={{ color: '#fbbf24', fontWeight: 700 }}>
+                                                            {e.pendingStudentsCount || 0} Pending
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        {e.requiredComponents ? `${e.requiredComponents.length} items` : 'Standard set'}
+                                                    </td>
+                                                    <td>
+                                                        <span className="status-badge-chip-podx on-track">Active</span>
+                                                    </td>
+                                                </tr>
+                                            ))
                                     )}
                                 </tbody>
                             </table>
@@ -1094,56 +1630,256 @@ function HodDashboardApp() {
                     </div>
                 )}
 
-                {/* 5. HARDWARE INVENTORY TAB */}
-                {activeTab === 'inventory' && (
-                    <div className="section-card">
-                        <div className="section-header">
-                            <div>
-                                <h3>Hardware Component Inventory & Stock Allocation</h3>
-                                <p>Hardware items available for staff handover and student laboratory usage</p>
+                {/* ========================================================= */}
+                {/* 6. STAFF TIMELINES TAB                                    */}
+                {/* ========================================================= */}
+                {activeTab === 'schedules' && (
+                    <div>
+                        <div className="section-card-podx" style={{ marginBottom: '1.5rem' }}>
+                            <div className="section-header-podx">
+                                <div>
+                                    <h3>Staff Milestone Deadlines &amp; Progress</h3>
+                                    <p>Comprehensive milestone tracking for laboratory delivery with overdue alerts</p>
+                                </div>
+                                <button
+                                    className="add-schedule-btn-podx"
+                                    onClick={() => setIsAddScheduleModalOpen(true)}
+                                >
+                                    + Add Milestone
+                                </button>
+                            </div>
+
+                            <div className="table-responsive-podx">
+                                <table className="hod-table-podx">
+                                    <thead>
+                                        <tr>
+                                            <th>Staff In-Charge</th>
+                                            <th>Subject</th>
+                                            <th>Milestone</th>
+                                            <th>Due Date</th>
+                                            <th>Status</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {schedules.length === 0 ? (
+                                            <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--podx-text-muted)' }}>No milestones registered</td></tr>
+                                        ) : (
+                                            schedules.map(s => {
+                                                const isDone = s.status === 'Done' || s.status === 'Completed';
+                                                const isOverdue = !isDone && (s.isOverdue || (s.dueDate && new Date(s.dueDate) < new Date()));
+                                                return (
+                                                    <tr key={s._id} className={isOverdue ? 'tr-overdue' : ''}>
+                                                        <td>
+                                                            <strong style={{ color: '#ffffff' }}>{s.staffInCharge}</strong>
+                                                        </td>
+                                                        <td>{s.subject}</td>
+                                                        <td>
+                                                            <span style={{ color: 'var(--podx-cyan)', fontWeight: 700 }}>
+                                                                {s.milestone || 'Curriculum Milestone'}
+                                                            </span>
+                                                        </td>
+                                                        <td>
+                                                            📅 {formatDate(s.dueDate || s.studentCompletionDeadline)}
+                                                        </td>
+                                                        <td>
+                                                            {isDone ? (
+                                                                <span className="badge-in-stock">✓ Done</span>
+                                                            ) : isOverdue ? (
+                                                                <span className="badge-overdue">⚠️ Overdue</span>
+                                                            ) : (
+                                                                <span className="days-pill-podx ok">Pending</span>
+                                                            )}
+                                                        </td>
+                                                        <td>
+                                                            <div style={{ display: 'flex', gap: '6px' }}>
+                                                                <button
+                                                                    className={`action-btn-sm ${isDone ? 'warning' : 'primary'}`}
+                                                                    onClick={() => handleToggleMilestoneStatus(s._id, s.status)}
+                                                                >
+                                                                    {isDone ? 'Reopen' : 'Mark Done'}
+                                                                </button>
+                                                                <button
+                                                                    className="action-btn-sm primary"
+                                                                    onClick={() => setEditingSchedule({ ...s })}
+                                                                >
+                                                                    Edit
+                                                                </button>
+                                                                <button
+                                                                    className="action-btn-sm danger"
+                                                                    onClick={() => handleDeleteSchedule(s._id, s.subject)}
+                                                                >
+                                                                    Delete
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })
+                                        )}
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
-                        <div className="table-responsive">
-                            <table className="hod-table">
-                                <thead>
-                                    <tr>
-                                        <th>Part #</th>
-                                        <th>Component Name</th>
-                                        <th>Type</th>
-                                        <th>Total Stock</th>
-                                        <th>Available</th>
-                                        <th>Condition</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {components.length === 0 ? (
-                                        <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem' }}>Loading hardware inventory...</td></tr>
-                                    ) : (
-                                        components.slice(0, 15).map(c => (
-                                            <tr key={c._id}>
-                                                <td><code>{c.partNumber}</code></td>
-                                                <td><strong>{c.name}</strong></td>
-                                                <td>{c.type}</td>
-                                                <td>{c.totalQuantity} units</td>
-                                                <td><strong style={{ color: 'var(--green)' }}>{c.availableQuantity} units</strong></td>
-                                                <td><span className="status-badge-chip on-track">{c.condition || 'Good'}</span></td>
-                                            </tr>
-                                        ))
-                                    )}
-                                </tbody>
-                            </table>
+
+                        <TimelineProjectionMap schedules={schedules} detailed={true} />
+                    </div>
+                )}
+
+                {/* ========================================================= */}
+                {/* 7. CURRICULUM TAB                                         */}
+                {/* ========================================================= */}
+                {activeTab === 'curriculum' && (
+                    <div>
+                        <div className="section-card-podx" style={{ marginBottom: '1.5rem' }}>
+                            <div className="section-header-podx">
+                                <div>
+                                    <h3>Curriculum Subjects &amp; Laboratory Syllabus</h3>
+                                    <p>Configure curriculum tracks and specify required apparatus components feeding student portals</p>
+                                </div>
+                                <div style={{ display: 'flex', gap: '8px' }}>
+                                    <button
+                                        className="action-btn-sm primary"
+                                        onClick={() => setIsAddSubjectModalOpen(true)}
+                                    >
+                                        + Add Subject Track
+                                    </button>
+                                    <button
+                                        className="add-schedule-btn-podx"
+                                        onClick={() => {
+                                            setCurriculumExpForm({
+                                                experimentNumber: `EXP-${(experiments.length + 1).toString().padStart(2, '0')}`,
+                                                title: '',
+                                                subject: curriculumSubjects.length > 0 ? curriculumSubjects[0].name : '',
+                                                staffInCharge: 'Prof. Faculty Member',
+                                                aim: '',
+                                                description: '',
+                                                requiredComponents: [
+                                                    { componentName: 'Integrated Circuit', partNumber: 'IC-LM741', quantity: 2, notes: 'Standard IC' }
+                                                ]
+                                            });
+                                            setEditingCurriculumExp(null);
+                                            setIsAddExperimentModalOpen(true);
+                                        }}
+                                    >
+                                        + Add Experiment
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginTop: '1rem' }}>
+                                {curriculumSubjects.map(sub => (
+                                    <div
+                                        key={sub.name}
+                                        style={{
+                                            background: 'rgba(255,255,255,0.04)',
+                                            border: '1px solid rgba(255,255,255,0.1)',
+                                            borderRadius: '12px',
+                                            padding: '0.85rem 1.25rem',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '12px'
+                                        }}
+                                    >
+                                        <div>
+                                            <strong style={{ color: '#ffffff', display: 'block' }}>{sub.name}</strong>
+                                            <span style={{ fontSize: '0.74rem', color: 'var(--podx-cyan)' }}>{sub.experimentCount} Experiments</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Experiments with Apparatus Editor */}
+                        <div className="section-card-podx">
+                            <div className="section-header-podx">
+                                <div>
+                                    <h3>Experiments &amp; Hardware Apparatus Requirements</h3>
+                                    <p>Each experiment's required components list directly configures the student Components page</p>
+                                </div>
+                            </div>
+
+                            <div className="table-responsive-podx">
+                                <table className="hod-table-podx">
+                                    <thead>
+                                        <tr>
+                                            <th>Exp #</th>
+                                            <th>Experiment Title</th>
+                                            <th>Subject</th>
+                                            <th>Staff In-Charge</th>
+                                            <th>Apparatus / Required Components</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {experiments.length === 0 ? (
+                                            <tr><td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: 'var(--podx-text-muted)' }}>No experiments found</td></tr>
+                                        ) : (
+                                            experiments.map(exp => (
+                                                <tr key={exp._id}>
+                                                    <td><span className="badge-purple">{exp.experimentNumber}</span></td>
+                                                    <td>
+                                                        <strong style={{ color: '#ffffff' }}>{exp.title}</strong>
+                                                    </td>
+                                                    <td>{exp.subject}</td>
+                                                    <td>{exp.staffInCharge || 'Assigned Faculty'}</td>
+                                                    <td>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                                                            {(!exp.requiredComponents || exp.requiredComponents.length === 0) ? (
+                                                                <span style={{ color: 'var(--podx-text-muted)', fontSize: '0.78rem' }}>None assigned</span>
+                                                            ) : (
+                                                                exp.requiredComponents.map((rc, idx) => (
+                                                                    <div key={idx} style={{ fontSize: '0.76rem', color: 'var(--podx-text-light)' }}>
+                                                                        • <strong>{rc.componentName}</strong> ({rc.partNumber}) - {rc.quantity} units
+                                                                    </div>
+                                                                ))
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                    <td>
+                                                        <button
+                                                            className="action-btn-sm primary"
+                                                            onClick={() => {
+                                                                setEditingCurriculumExp(exp);
+                                                                setCurriculumExpForm({
+                                                                    experimentNumber: exp.experimentNumber,
+                                                                    title: exp.title,
+                                                                    subject: exp.subject,
+                                                                    staffInCharge: exp.staffInCharge || 'Prof. Faculty Member',
+                                                                    aim: exp.aim || '',
+                                                                    description: exp.description || '',
+                                                                    requiredComponents: exp.requiredComponents && exp.requiredComponents.length > 0 ? exp.requiredComponents : [
+                                                                        { componentName: '', partNumber: 'PRT-10001', quantity: 1, notes: '' }
+                                                                    ]
+                                                                });
+                                                                setIsAddExperimentModalOpen(true);
+                                                            }}
+                                                        >
+                                                            Edit &amp; Apparatus
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 )}
             </main>
 
-            {/* EDIT SCHEDULE MODAL (PERSISTENCE TO MONGODB) */}
+            {/* ========================================================= */}
+            {/* MODALS                                                    */}
+            {/* ========================================================= */}
+
+            {/* 1. EDIT SCHEDULE / MILESTONE MODAL */}
             {editingSchedule && (
                 <div className="hod-modal-overlay">
                     <div className="hod-modal">
                         <div className="modal-header">
                             <div>
-                                <h3>Edit Subject Progress & Deadlines</h3>
+                                <h3>Edit Subject Progress &amp; Milestone</h3>
                                 <p>Configure staff in-charge, finished experiments, and milestone target dates</p>
                             </div>
                             <button className="close-btn" onClick={() => setEditingSchedule(null)}>✕</button>
@@ -1176,11 +1912,21 @@ function HodDashboardApp() {
                                     <label>Student Batch</label>
                                     <input
                                         type="text"
-                                        value={editingSchedule.batchName}
+                                        value={editingSchedule.batchName || ''}
                                         onChange={(e) => setEditingSchedule({ ...editingSchedule, batchName: e.target.value })}
                                         className="hod-input"
                                     />
                                 </div>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Milestone Name / Goal</label>
+                                <input
+                                    type="text"
+                                    value={editingSchedule.milestone || ''}
+                                    onChange={(e) => setEditingSchedule({ ...editingSchedule, milestone: e.target.value })}
+                                    className="hod-input"
+                                />
                             </div>
 
                             <div className="form-row">
@@ -1190,7 +1936,7 @@ function HodDashboardApp() {
                                         type="number"
                                         min="0"
                                         max={editingSchedule.totalExperiments || 10}
-                                        value={editingSchedule.completedExperiments}
+                                        value={editingSchedule.completedExperiments || 0}
                                         onChange={(e) => setEditingSchedule({ ...editingSchedule, completedExperiments: parseInt(e.target.value) || 0 })}
                                         className="hod-input"
                                     />
@@ -1217,23 +1963,21 @@ function HodDashboardApp() {
                                         required
                                         className="hod-input date-accent"
                                     />
-                                    <small className="help-text">Date until which staff must give components to students</small>
                                 </div>
                                 <div className="form-group">
                                     <label>🎯 Student Completion Deadline</label>
                                     <input
                                         type="date"
-                                        value={toInputDate(editingSchedule.studentCompletionDeadline)}
-                                        onChange={(e) => setEditingSchedule({ ...editingSchedule, studentCompletionDeadline: e.target.value })}
+                                        value={toInputDate(editingSchedule.studentCompletionDeadline || editingSchedule.dueDate)}
+                                        onChange={(e) => setEditingSchedule({ ...editingSchedule, studentCompletionDeadline: e.target.value, dueDate: e.target.value })}
                                         required
                                         className="hod-input date-accent"
                                     />
-                                    <small className="help-text">Target date under which all students must finish experiments</small>
                                 </div>
                             </div>
 
                             <div className="form-group">
-                                <label>Department Status</label>
+                                <label>Status</label>
                                 <select
                                     value={editingSchedule.status}
                                     onChange={(e) => setEditingSchedule({ ...editingSchedule, status: e.target.value })}
@@ -1242,25 +1986,16 @@ function HodDashboardApp() {
                                     <option value="On Track">On Track</option>
                                     <option value="In Progress">In Progress</option>
                                     <option value="Action Required">Action Required</option>
+                                    <option value="Pending">Pending</option>
+                                    <option value="Done">Done</option>
                                     <option value="Completed">Completed</option>
                                 </select>
-                            </div>
-
-                            <div className="form-group">
-                                <label>Monitoring Notes / Directives from HOD</label>
-                                <textarea
-                                    rows="2"
-                                    value={editingSchedule.notes || ''}
-                                    onChange={(e) => setEditingSchedule({ ...editingSchedule, notes: e.target.value })}
-                                    placeholder="Enter instructions for staff or batch requirements..."
-                                    className="hod-textarea"
-                                ></textarea>
                             </div>
 
                             <div className="modal-actions">
                                 <button type="button" className="btn-cancel" onClick={() => setEditingSchedule(null)}>Cancel</button>
                                 <button type="submit" className="btn-save" disabled={isSaving}>
-                                    {isSaving ? 'Saving to staff_portal...' : '💾 Save to Database'}
+                                    {isSaving ? 'Saving...' : '💾 Save to MongoDB'}
                                 </button>
                             </div>
                         </form>
@@ -1268,114 +2003,14 @@ function HodDashboardApp() {
                 </div>
             )}
 
-            {/* AI ANALYSIS RESULTS MODAL */}
-            {aiResultModal && (
-                <div className="hod-modal-overlay">
-                    <div className="hod-modal ai-modal">
-                        <div className="modal-header ai-modal-header">
-                            <div>
-                                <div className="ai-badge-header">
-                                    <span>🤖 AI Model: {aiResultModal.aiModel || 'MK-PATH / Docling Vision v2.0'}</span>
-                                    <span className="confidence-chip">Confidence: {aiResultModal.confidenceScore}%</span>
-                                </div>
-                                <h3>AI Multi-Curriculum Department Analysis Report</h3>
-                                <p>Automated database analysis across manuals, experiments, student attempts, and component allocations</p>
-                            </div>
-                            <button className="close-btn" onClick={() => setAiResultModal(null)}>✕</button>
-                        </div>
-
-                        <div className="ai-modal-body">
-                            {/* Executive Summary Card */}
-                            <div className="ai-summary-box">
-                                <div className="ai-box-title">
-                                    <span>📋 Executive Summary & Directives</span>
-                                </div>
-                                <p>{aiResultModal.executiveSummary}</p>
-                            </div>
-
-                            {/* Metrics Banner */}
-                            <div className="ai-metrics-row">
-                                <div className="ai-mini-kpi">
-                                    <span className="label">Department Completion</span>
-                                    <strong style={{ color: 'var(--cyan)' }}>{aiResultModal.overallCompletionRate}%</strong>
-                                </div>
-                                <div className="ai-mini-kpi">
-                                    <span className="label">Finished Experiments</span>
-                                    <strong style={{ color: 'var(--green)' }}>{aiResultModal.totalCompletedExperiments} / {aiResultModal.totalTargetExperiments}</strong>
-                                </div>
-                                <div className="ai-mini-kpi">
-                                    <span className="label">Schedules Synced</span>
-                                    <strong style={{ color: 'var(--purple)' }}>{aiResultModal.schedulesUpdated} Tracks</strong>
-                                </div>
-                                <div className="ai-mini-kpi">
-                                    <span className="label">Analysis Latency</span>
-                                    <strong style={{ color: 'var(--amber)' }}>{aiResultModal.durationMs}ms</strong>
-                                </div>
-                            </div>
-
-                            {/* Inventory Warnings */}
-                            {aiResultModal.inventoryAlerts && aiResultModal.inventoryAlerts.length > 0 && (
-                                <div className="ai-inventory-box">
-                                    <h4>⚠️ Hardware Inventory Stock Warnings ({aiResultModal.inventoryAlerts.length})</h4>
-                                    <div className="inventory-chips-grid">
-                                        {aiResultModal.inventoryAlerts.map((inv, idx) => (
-                                            <div key={idx} className={`inv-warning-chip ${inv.severity.toLowerCase()}`}>
-                                                <strong>{inv.name} ({inv.partNumber})</strong>
-                                                <span>Available: {inv.available} / {inv.total} units - {inv.advice}</span>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Analyzed Tracks Breakdown */}
-                            <div className="ai-tracks-breakdown">
-                                <h4>📊 AI Analyzed Curriculum Tracks & Projected Deadlines</h4>
-                                <div className="ai-cards-grid">
-                                    {(aiResultModal.insights || []).map((ins, idx) => (
-                                        <div key={idx} className="ai-track-card">
-                                            <div className="ai-track-header">
-                                                <strong>{ins.subject}</strong>
-                                                <span className={`status-badge-chip ${ins.status.toLowerCase().replace(/\s+/g, '-')}`}>
-                                                    {ins.status}
-                                                </span>
-                                            </div>
-                                            <div className="ai-track-meta">
-                                                <span>Staff: <strong>{ins.staff}</strong></span>
-                                                <span>Completion: <strong>{ins.completionRate} ({ins.finishedExperiments}/{ins.totalExperiments})</strong></span>
-                                            </div>
-                                            <div className="ai-track-dates">
-                                                <span>📦 Handover Deadline: <strong>{formatDate(ins.componentDeadline)}</strong></span>
-                                                <span>🎯 Student Target: <strong>{formatDate(ins.studentDeadline)}</strong></span>
-                                            </div>
-                                            <p className="ai-track-directive">{ins.aiSummary}</p>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="modal-actions" style={{ marginTop: '1.5rem' }}>
-                            <button
-                                type="button"
-                                className="btn-save"
-                                onClick={() => setAiResultModal(null)}
-                            >
-                                ✓ Close & View Mapped Dashboard
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
-            {/* ADD NEW SCHEDULE MODAL (ADMIN / HOD) */}
+            {/* 2. ADD SCHEDULE / MILESTONE MODAL */}
             {isAddScheduleModalOpen && (
                 <div className="hod-modal-overlay">
                     <div className="hod-modal">
                         <div className="modal-header">
                             <div>
-                                <h3>+ Add New Curriculum Subject Schedule</h3>
-                                <p>Register a new subject track with milestone deadlines into MongoDB staff_portal</p>
+                                <h3>+ Add Staff Milestone Schedule</h3>
+                                <p>Register a milestone deadline track into MongoDB staff_portal</p>
                             </div>
                             <button className="close-btn" onClick={() => setIsAddScheduleModalOpen(false)}>✕</button>
                         </div>
@@ -1385,7 +2020,7 @@ function HodDashboardApp() {
                                 <label>Subject Title *</label>
                                 <input
                                     type="text"
-                                    placeholder="e.g. Distributed Cloud Computing Lab"
+                                    placeholder="e.g. Linear Integrated Circuits Lab"
                                     value={newSchedule.subject}
                                     onChange={(e) => setNewSchedule({ ...newSchedule, subject: e.target.value })}
                                     required
@@ -1405,7 +2040,7 @@ function HodDashboardApp() {
                                     />
                                 </div>
                                 <div className="form-group">
-                                    <label>Student Batch</label>
+                                    <label>Batch Name</label>
                                     <input
                                         type="text"
                                         value={newSchedule.batchName}
@@ -1415,28 +2050,14 @@ function HodDashboardApp() {
                                 </div>
                             </div>
 
-                            <div className="form-row">
-                                <div className="form-group">
-                                    <label>Finished Experiments</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        max={newSchedule.totalExperiments || 10}
-                                        value={newSchedule.completedExperiments}
-                                        onChange={(e) => setNewSchedule({ ...newSchedule, completedExperiments: parseInt(e.target.value) || 0 })}
-                                        className="hod-input"
-                                    />
-                                </div>
-                                <div className="form-group">
-                                    <label>Total Experiments</label>
-                                    <input
-                                        type="number"
-                                        min="1"
-                                        value={newSchedule.totalExperiments || 10}
-                                        onChange={(e) => setNewSchedule({ ...newSchedule, totalExperiments: parseInt(e.target.value) || 10 })}
-                                        className="hod-input"
-                                    />
-                                </div>
+                            <div className="form-group">
+                                <label>Milestone Goal</label>
+                                <input
+                                    type="text"
+                                    value={newSchedule.milestone}
+                                    onChange={(e) => setNewSchedule({ ...newSchedule, milestone: e.target.value })}
+                                    className="hod-input"
+                                />
                             </div>
 
                             <div className="form-row">
@@ -1451,46 +2072,21 @@ function HodDashboardApp() {
                                     />
                                 </div>
                                 <div className="form-group">
-                                    <label>🎯 Student Completion Deadline *</label>
+                                    <label>🎯 Milestone Due Date *</label>
                                     <input
                                         type="date"
                                         value={newSchedule.studentCompletionDeadline}
-                                        onChange={(e) => setNewSchedule({ ...newSchedule, studentCompletionDeadline: e.target.value })}
+                                        onChange={(e) => setNewSchedule({ ...newSchedule, studentCompletionDeadline: e.target.value, dueDate: e.target.value })}
                                         required
                                         className="hod-input date-accent"
                                     />
                                 </div>
                             </div>
 
-                            <div className="form-group">
-                                <label>Initial Status</label>
-                                <select
-                                    value={newSchedule.status}
-                                    onChange={(e) => setNewSchedule({ ...newSchedule, status: e.target.value })}
-                                    className="hod-select"
-                                >
-                                    <option value="On Track">On Track</option>
-                                    <option value="In Progress">In Progress</option>
-                                    <option value="Action Required">Action Required</option>
-                                    <option value="Completed">Completed</option>
-                                </select>
-                            </div>
-
-                            <div className="form-group">
-                                <label>HOD Directives / Notes</label>
-                                <textarea
-                                    rows="2"
-                                    value={newSchedule.notes}
-                                    onChange={(e) => setNewSchedule({ ...newSchedule, notes: e.target.value })}
-                                    placeholder="Department instructions or hardware notes..."
-                                    className="hod-textarea"
-                                ></textarea>
-                            </div>
-
                             <div className="modal-actions">
                                 <button type="button" className="btn-cancel" onClick={() => setIsAddScheduleModalOpen(false)}>Cancel</button>
                                 <button type="submit" className="btn-save" disabled={isSaving}>
-                                    {isSaving ? 'Saving...' : '💾 Create in staff_portal'}
+                                    {isSaving ? 'Creating...' : '💾 Create in Database'}
                                 </button>
                             </div>
                         </form>
@@ -1498,14 +2094,613 @@ function HodDashboardApp() {
                 </div>
             )}
 
-            {/* DEPARTMENT PROFILE / SETTINGS MODAL (ADMIN / HOD) */}
+            {/* 3. ADD FACULTY MODAL */}
+            {isAddFacultyModalOpen && (
+                <div className="hod-modal-overlay">
+                    <div className="hod-modal">
+                        <div className="modal-header">
+                            <div>
+                                <h3>+ Add Faculty Member</h3>
+                                <p>Register staff faculty account with subject assignments in MongoDB</p>
+                            </div>
+                            <button className="close-btn" onClick={() => setIsAddFacultyModalOpen(false)}>✕</button>
+                        </div>
+
+                        <form onSubmit={handleCreateFaculty} className="modal-form">
+                            <div className="form-group">
+                                <label>Full Name *</label>
+                                <input
+                                    type="text"
+                                    placeholder="Prof. Jane Doe"
+                                    value={newFaculty.name}
+                                    onChange={(e) => setNewFaculty({ ...newFaculty, name: e.target.value })}
+                                    required
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Username *</label>
+                                    <input
+                                        type="text"
+                                        placeholder="jane_faculty"
+                                        value={newFaculty.username}
+                                        onChange={(e) => setNewFaculty({ ...newFaculty, username: e.target.value })}
+                                        required
+                                        className="hod-input"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Password *</label>
+                                    <input
+                                        type="password"
+                                        placeholder="Initial password"
+                                        value={newFaculty.password}
+                                        onChange={(e) => setNewFaculty({ ...newFaculty, password: e.target.value })}
+                                        required
+                                        className="hod-input"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-group">
+                                <label>Email Address</label>
+                                <input
+                                    type="email"
+                                    placeholder="jane.doe@univ.edu"
+                                    value={newFaculty.email}
+                                    onChange={(e) => setNewFaculty({ ...newFaculty, email: e.target.value })}
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Assigned Subjects (comma-separated)</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Embedded Systems Lab, Digital Signal Processing"
+                                    value={newFaculty.assignedSubjects}
+                                    onChange={(e) => setNewFaculty({ ...newFaculty, assignedSubjects: e.target.value })}
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Status</label>
+                                    <select
+                                        value={newFaculty.status}
+                                        onChange={(e) => setNewFaculty({ ...newFaculty, status: e.target.value })}
+                                        className="hod-select"
+                                    >
+                                        <option value="Active">Active</option>
+                                        <option value="Inactive">Inactive</option>
+                                    </select>
+                                </div>
+                                <div className="form-group">
+                                    <label>Security Clearance</label>
+                                    <select
+                                        value={newFaculty.securityClearance ? 'true' : 'false'}
+                                        onChange={(e) => setNewFaculty({ ...newFaculty, securityClearance: e.target.value === 'true' })}
+                                        className="hod-select"
+                                    >
+                                        <option value="true">Granted (Full Lab Access)</option>
+                                        <option value="false">Revoked / Restricted</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="modal-actions">
+                                <button type="button" className="btn-cancel" onClick={() => setIsAddFacultyModalOpen(false)}>Cancel</button>
+                                <button type="submit" className="btn-save" disabled={isSaving}>
+                                    {isSaving ? 'Saving...' : '💾 Add to Database'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* 4. EDIT FACULTY MODAL */}
+            {editingFaculty && (
+                <div className="hod-modal-overlay">
+                    <div className="hod-modal">
+                        <div className="modal-header">
+                            <div>
+                                <h3>Edit Faculty Member</h3>
+                                <p>Update profile and subject assignments for @{editingFaculty.username}</p>
+                            </div>
+                            <button className="close-btn" onClick={() => setEditingFaculty(null)}>✕</button>
+                        </div>
+
+                        <form onSubmit={handleUpdateFaculty} className="modal-form">
+                            <div className="form-group">
+                                <label>Full Name</label>
+                                <input
+                                    type="text"
+                                    value={editingFaculty.name || ''}
+                                    onChange={(e) => setEditingFaculty({ ...editingFaculty, name: e.target.value })}
+                                    required
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Email Address</label>
+                                <input
+                                    type="email"
+                                    value={editingFaculty.email || ''}
+                                    onChange={(e) => setEditingFaculty({ ...editingFaculty, email: e.target.value })}
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Assigned Subjects (comma-separated)</label>
+                                <input
+                                    type="text"
+                                    value={editingFaculty.assignedSubjectsStr || ''}
+                                    onChange={(e) => setEditingFaculty({ ...editingFaculty, assignedSubjectsStr: e.target.value, assignedSubjects: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })}
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Account Status</label>
+                                <select
+                                    value={editingFaculty.status || 'Active'}
+                                    onChange={(e) => setEditingFaculty({ ...editingFaculty, status: e.target.value })}
+                                    className="hod-select"
+                                >
+                                    <option value="Active">Active</option>
+                                    <option value="Inactive">Inactive</option>
+                                </select>
+                            </div>
+
+                            <div className="modal-actions">
+                                <button type="button" className="btn-cancel" onClick={() => setEditingFaculty(null)}>Cancel</button>
+                                <button type="submit" className="btn-save" disabled={isSaving}>
+                                    {isSaving ? 'Updating...' : '💾 Update in MongoDB'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* 5. ADD COMPONENT MODAL */}
+            {isAddComponentModalOpen && (
+                <div className="hod-modal-overlay">
+                    <div className="hod-modal">
+                        <div className="modal-header">
+                            <div>
+                                <h3>+ Add Hardware Component to Inventory</h3>
+                                <p>Registers stock into the unified database collection feeding student requisitions</p>
+                            </div>
+                            <button className="close-btn" onClick={() => setIsAddComponentModalOpen(false)}>✕</button>
+                        </div>
+
+                        <form onSubmit={handleCreateComponent} className="modal-form">
+                            <div className="form-group">
+                                <label>Component Name *</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Raspberry Pi 4 Model B"
+                                    value={newComponent.name}
+                                    onChange={(e) => setNewComponent({ ...newComponent, name: e.target.value })}
+                                    required
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Part ID (Leave blank to auto-generate PRT-xxxxx)</label>
+                                    <input
+                                        type="text"
+                                        placeholder="Auto PRT-xxxxx"
+                                        value={newComponent.partNumber}
+                                        onChange={(e) => setNewComponent({ ...newComponent, partNumber: e.target.value })}
+                                        className="hod-input"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Type / Category</label>
+                                    <select
+                                        value={newComponent.type}
+                                        onChange={(e) => setNewComponent({ ...newComponent, type: e.target.value })}
+                                        className="hod-select"
+                                    >
+                                        <option value="Electronic Components">Electronic Components</option>
+                                        <option value="Microcontroller Benches">Microcontroller Benches</option>
+                                        <option value="Sensor Test Rigs">Sensor Test Rigs</option>
+                                        <option value="Equipment">Oscilloscope &amp; Equipment</option>
+                                        <option value="Hardware Apparatus">Hardware Apparatus</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Rack / Storage Location</label>
+                                    <input
+                                        type="text"
+                                        value={newComponent.rackNumber}
+                                        onChange={(e) => setNewComponent({ ...newComponent, rackNumber: e.target.value })}
+                                        className="hod-input"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Total Initial Stock *</label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        value={newComponent.totalQuantity}
+                                        onChange={(e) => setNewComponent({ ...newComponent, totalQuantity: parseInt(e.target.value) || 1 })}
+                                        required
+                                        className="hod-input"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Low Stock Threshold *</label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        value={newComponent.minimumStockLevel}
+                                        onChange={(e) => setNewComponent({ ...newComponent, minimumStockLevel: parseInt(e.target.value) || 1 })}
+                                        required
+                                        className="hod-input"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Condition</label>
+                                    <select
+                                        value={newComponent.condition}
+                                        onChange={(e) => setNewComponent({ ...newComponent, condition: e.target.value })}
+                                        className="hod-select"
+                                    >
+                                        <option value="Brand New">Brand New</option>
+                                        <option value="Good">Good</option>
+                                        <option value="Fair">Fair</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="modal-actions">
+                                <button type="button" className="btn-cancel" onClick={() => setIsAddComponentModalOpen(false)}>Cancel</button>
+                                <button type="submit" className="btn-save" disabled={isSaving}>
+                                    {isSaving ? 'Adding...' : '💾 Add Component to Database'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* 6. EDIT COMPONENT MODAL */}
+            {editingComponent && (
+                <div className="hod-modal-overlay">
+                    <div className="hod-modal">
+                        <div className="modal-header">
+                            <div>
+                                <h3>Edit Hardware Component ({editingComponent.partNumber})</h3>
+                                <p>Update details and storage parameters in MongoDB</p>
+                            </div>
+                            <button className="close-btn" onClick={() => setEditingComponent(null)}>✕</button>
+                        </div>
+
+                        <form onSubmit={handleUpdateComponent} className="modal-form">
+                            <div className="form-group">
+                                <label>Component Name</label>
+                                <input
+                                    type="text"
+                                    value={editingComponent.name}
+                                    onChange={(e) => setEditingComponent({ ...editingComponent, name: e.target.value })}
+                                    required
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Type</label>
+                                    <input
+                                        type="text"
+                                        value={editingComponent.type}
+                                        onChange={(e) => setEditingComponent({ ...editingComponent, type: e.target.value })}
+                                        className="hod-input"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Rack / Storage Location</label>
+                                    <input
+                                        type="text"
+                                        value={editingComponent.rackNumber || ''}
+                                        onChange={(e) => setEditingComponent({ ...editingComponent, rackNumber: e.target.value })}
+                                        className="hod-input"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Total Quantity</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        value={editingComponent.totalQuantity}
+                                        onChange={(e) => setEditingComponent({ ...editingComponent, totalQuantity: parseInt(e.target.value) || 0 })}
+                                        className="hod-input"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Low-Stock Threshold</label>
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        value={editingComponent.minimumStockLevel || 5}
+                                        onChange={(e) => setEditingComponent({ ...editingComponent, minimumStockLevel: parseInt(e.target.value) || 1 })}
+                                        className="hod-input"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="modal-actions">
+                                <button type="button" className="btn-cancel" onClick={() => setEditingComponent(null)}>Cancel</button>
+                                <button type="submit" className="btn-save" disabled={isSaving}>
+                                    {isSaving ? 'Saving...' : '💾 Save Component'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* 7. ADJUST COMPONENT STOCK MODAL */}
+            {adjustingComponent && (
+                <div className="hod-modal-overlay">
+                    <div className="hod-modal">
+                        <div className="modal-header">
+                            <div>
+                                <h3>Adjust Stock: {adjustingComponent.name}</h3>
+                                <p>Part ID: {adjustingComponent.partNumber} | Current Available: {adjustingComponent.availableQuantity}</p>
+                            </div>
+                            <button className="close-btn" onClick={() => setAdjustingComponent(null)}>✕</button>
+                        </div>
+
+                        <form onSubmit={handleAdjustStock} className="modal-form">
+                            <div className="form-group">
+                                <label>Quantity Change (+ to add stock, - to deduct)</label>
+                                <input
+                                    type="number"
+                                    step="1"
+                                    value={adjustStockForm.quantityChange}
+                                    onChange={(e) => setAdjustStockForm({ ...adjustStockForm, quantityChange: parseInt(e.target.value) || 0 })}
+                                    required
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Reason / Audit Remarks *</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Received new department batch from vendor"
+                                    value={adjustStockForm.remarks}
+                                    onChange={(e) => setAdjustStockForm({ ...adjustStockForm, remarks: e.target.value })}
+                                    required
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="modal-actions">
+                                <button type="button" className="btn-cancel" onClick={() => setAdjustingComponent(null)}>Cancel</button>
+                                <button type="submit" className="btn-save" disabled={isSaving}>
+                                    {isSaving ? 'Updating...' : '💾 Apply Stock Adjustment'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* 8. ADD CURRICULUM SUBJECT MODAL */}
+            {isAddSubjectModalOpen && (
+                <div className="hod-modal-overlay">
+                    <div className="hod-modal">
+                        <div className="modal-header">
+                            <div>
+                                <h3>+ Add Curriculum Subject Track</h3>
+                                <p>Register a new laboratory course into MongoDB</p>
+                            </div>
+                            <button className="close-btn" onClick={() => setIsAddSubjectModalOpen(false)}>✕</button>
+                        </div>
+
+                        <form onSubmit={handleCreateSubject} className="modal-form">
+                            <div className="form-group">
+                                <label>Subject Title *</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. Advanced Embedded Systems Laboratory"
+                                    value={newSubject.subjectName}
+                                    onChange={(e) => setNewSubject({ ...newSubject, subjectName: e.target.value })}
+                                    required
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="form-group">
+                                <label>Staff In-Charge</label>
+                                <input
+                                    type="text"
+                                    value={newSubject.staffInCharge}
+                                    onChange={(e) => setNewSubject({ ...newSubject, staffInCharge: e.target.value })}
+                                    className="hod-input"
+                                />
+                            </div>
+
+                            <div className="modal-actions">
+                                <button type="button" className="btn-cancel" onClick={() => setIsAddSubjectModalOpen(false)}>Cancel</button>
+                                <button type="submit" className="btn-save" disabled={isSaving}>
+                                    {isSaving ? 'Creating...' : '💾 Create Subject'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* 9. ADD / EDIT CURRICULUM EXPERIMENT WITH APPARATUS EDITOR */}
+            {isAddExperimentModalOpen && (
+                <div className="hod-modal-overlay">
+                    <div className="hod-modal" style={{ maxWidth: '750px' }}>
+                        <div className="modal-header">
+                            <div>
+                                <h3>{editingCurriculumExp ? `Edit Experiment: ${curriculumExpForm.experimentNumber}` : '+ Add Experiment & Apparatus'}</h3>
+                                <p>Define experiment metadata and required components feeding student portals</p>
+                            </div>
+                            <button className="close-btn" onClick={() => setIsAddExperimentModalOpen(false)}>✕</button>
+                        </div>
+
+                        <form onSubmit={handleSaveCurriculumExperiment} className="modal-form">
+                            <div className="form-row">
+                                <div className="form-group" style={{ flex: '0 0 140px' }}>
+                                    <label>Exp # *</label>
+                                    <input
+                                        type="text"
+                                        value={curriculumExpForm.experimentNumber}
+                                        onChange={(e) => setCurriculumExpForm({ ...curriculumExpForm, experimentNumber: e.target.value.toUpperCase() })}
+                                        required
+                                        className="hod-input"
+                                    />
+                                </div>
+                                <div className="form-group" style={{ flex: 1 }}>
+                                    <label>Experiment Title *</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Design of Inverting & Non-Inverting Op-Amp"
+                                        value={curriculumExpForm.title}
+                                        onChange={(e) => setCurriculumExpForm({ ...curriculumExpForm, title: e.target.value })}
+                                        required
+                                        className="hod-input"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="form-row">
+                                <div className="form-group">
+                                    <label>Subject Curriculum *</label>
+                                    <input
+                                        type="text"
+                                        placeholder="e.g. Linear Integrated Circuits Lab"
+                                        value={curriculumExpForm.subject}
+                                        onChange={(e) => setCurriculumExpForm({ ...curriculumExpForm, subject: e.target.value })}
+                                        required
+                                        className="hod-input"
+                                    />
+                                </div>
+                                <div className="form-group">
+                                    <label>Staff In-Charge</label>
+                                    <input
+                                        type="text"
+                                        value={curriculumExpForm.staffInCharge}
+                                        onChange={(e) => setCurriculumExpForm({ ...curriculumExpForm, staffInCharge: e.target.value })}
+                                        className="hod-input"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Required Hardware Apparatus Rows Editor */}
+                            <div className="form-group">
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                    <label style={{ margin: 0 }}>Required Hardware Apparatus &amp; Components ({curriculumExpForm.requiredComponents.length})</label>
+                                    <span style={{ fontSize: '0.74rem', color: 'var(--podx-cyan)' }}>Directly feeds student component requisitions</span>
+                                </div>
+
+                                <div className="component-rows-container">
+                                    {curriculumExpForm.requiredComponents.map((rc, idx) => (
+                                        <div key={idx} className="component-row-editor">
+                                            <input
+                                                type="text"
+                                                placeholder="Component Name"
+                                                value={rc.componentName}
+                                                onChange={(e) => handleApparatusRowChange(idx, 'componentName', e.target.value)}
+                                                required
+                                                className="hod-input"
+                                                style={{ fontSize: '0.8rem', padding: '6px 8px' }}
+                                            />
+                                            <input
+                                                type="text"
+                                                placeholder="Part Number"
+                                                value={rc.partNumber}
+                                                onChange={(e) => handleApparatusRowChange(idx, 'partNumber', e.target.value)}
+                                                required
+                                                className="hod-input"
+                                                style={{ fontSize: '0.8rem', padding: '6px 8px' }}
+                                            />
+                                            <input
+                                                type="number"
+                                                min="1"
+                                                placeholder="Qty"
+                                                value={rc.quantity}
+                                                onChange={(e) => handleApparatusRowChange(idx, 'quantity', parseInt(e.target.value) || 1)}
+                                                required
+                                                className="hod-input"
+                                                style={{ fontSize: '0.8rem', padding: '6px 8px' }}
+                                            />
+                                            <input
+                                                type="text"
+                                                placeholder="Notes / Specs"
+                                                value={rc.notes || ''}
+                                                onChange={(e) => handleApparatusRowChange(idx, 'notes', e.target.value)}
+                                                className="hod-input"
+                                                style={{ fontSize: '0.8rem', padding: '6px 8px' }}
+                                            />
+                                            <button
+                                                type="button"
+                                                className="step-btn-podx"
+                                                style={{ background: 'rgba(239,68,68,0.2)', borderColor: '#ef4444', color: '#ff6b6b' }}
+                                                onClick={() => handleRemoveApparatusRow(idx)}
+                                                title="Remove component"
+                                            >
+                                                ✕
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                <button
+                                    type="button"
+                                    className="btn-add-row"
+                                    onClick={handleAddApparatusRow}
+                                >
+                                    + Add Required Apparatus Row
+                                </button>
+                            </div>
+
+                            <div className="modal-actions">
+                                <button type="button" className="btn-cancel" onClick={() => setIsAddExperimentModalOpen(false)}>Cancel</button>
+                                <button type="submit" className="btn-save" disabled={isSaving}>
+                                    {isSaving ? 'Saving...' : '💾 Save Experiment to MongoDB'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* 10. DEPARTMENT PROFILE / SETTINGS MODAL */}
             {isProfileModalOpen && (
                 <div className="hod-modal-overlay">
                     <div className="hod-modal">
                         <div className="modal-header">
                             <div>
-                                <h3>⚙️ Department & HOD Executive Settings</h3>
-                                <p>Update department name, HOD administrator info, and department-wide announcements stored in MongoDB</p>
+                                <h3>⚙️ Department &amp; HOD Executive Settings</h3>
+                                <p>Update department name, HOD administrator info, and announcements stored in MongoDB</p>
                             </div>
                             <button className="close-btn" onClick={() => setIsProfileModalOpen(false)}>✕</button>
                         </div>
@@ -1545,12 +2740,12 @@ function HodDashboardApp() {
                             </div>
 
                             <div className="form-group">
-                                <label>Department Memo / Notice Board Announcement</label>
+                                <label>Department Notice Board Memo</label>
                                 <textarea
                                     rows="3"
                                     value={departmentMeta.announcement}
                                     onChange={(e) => setDepartmentMeta({ ...departmentMeta, announcement: e.target.value })}
-                                    placeholder="Enter department memo visible to staff and students..."
+                                    placeholder="Enter department memo visible to staff..."
                                     className="hod-textarea"
                                 ></textarea>
                             </div>
@@ -1558,7 +2753,7 @@ function HodDashboardApp() {
                             <div className="modal-actions">
                                 <button type="button" className="btn-cancel" onClick={() => setIsProfileModalOpen(false)}>Cancel</button>
                                 <button type="submit" className="btn-save" disabled={isSaving}>
-                                    {isSaving ? 'Saving...' : '💾 Update Department in MongoDB'}
+                                    {isSaving ? 'Saving...' : '💾 Update in MongoDB'}
                                 </button>
                             </div>
                         </form>
@@ -1570,112 +2765,24 @@ function HodDashboardApp() {
 }
 
 // ==========================================
-// POWER BI CHART COMPONENT 1: SUBJECT COMPLETION BAR CHART
-// ==========================================
-function SubjectCompletionBarChart({ schedules }) {
-    const canvasRef = useRef(null);
-    const chartInstanceRef = useRef(null);
-
-    useEffect(() => {
-        if (!canvasRef.current) return;
-        if (!schedules || schedules.length === 0) return;
-
-        const ctx = canvasRef.current.getContext('2d');
-        if (chartInstanceRef.current) {
-            chartInstanceRef.current.destroy();
-        }
-
-        const labels = schedules.map(s => s.subject.length > 18 ? s.subject.substring(0, 16) + '...' : s.subject);
-        const finishedData = schedules.map(s => s.completedExperiments || 0);
-        const remainingData = schedules.map(s => Math.max(0, (s.totalExperiments || 10) - (s.completedExperiments || 0)));
-
-        chartInstanceRef.current = new Chart(ctx, {
-            type: 'bar',
-            data: {
-                labels,
-                datasets: [
-                    {
-                        label: 'Finished Experiments',
-                        data: finishedData,
-                        backgroundColor: '#10b981',
-                        borderRadius: 6
-                    },
-                    {
-                        label: 'Remaining Experiments',
-                        data: remainingData,
-                        backgroundColor: '#374151',
-                        borderRadius: 6
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: {
-                        stacked: true,
-                        grid: { display: false },
-                        ticks: { color: '#9ca3af', font: { size: 11 } }
-                    },
-                    y: {
-                        stacked: true,
-                        max: 10,
-                        grid: { color: 'rgba(255,255,255,0.06)' },
-                        ticks: { color: '#9ca3af', stepSize: 2 }
-                    }
-                },
-                plugins: {
-                    legend: {
-                        labels: { color: '#e5e7eb', font: { size: 12 } }
-                    },
-                    tooltip: {
-                        callbacks: {
-                            footer: (items) => {
-                                const idx = items[0].dataIndex;
-                                const s = schedules[idx];
-                                return `Staff: ${s.staffInCharge}\nBatch: ${s.batchName}`;
-                            }
-                        }
-                    }
-                }
-            }
-        });
-
-        return () => {
-            if (chartInstanceRef.current) chartInstanceRef.current.destroy();
-        };
-    }, [schedules]);
-
-    return (
-        <div className="section-card chart-card">
-            <div className="chart-header">
-                <div>
-                    <h4>Subject Completion Mapping (Finished vs Target)</h4>
-                    <span className="chart-subtitle">Power BI Comparative Bar Visualizer</span>
-                </div>
-            </div>
-            <div className="canvas-wrapper">
-                {(!schedules || schedules.length === 0) ? (
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'var(--text-muted)' }}>
-                        <span>Loading department curriculum metrics from MongoDB...</span>
-                    </div>
-                ) : (
-                    <canvas ref={canvasRef}></canvas>
-                )}
-            </div>
-        </div>
-    );
-}
-
-// ==========================================
-// POWER BI CHART COMPONENT 2: TIMELINE PROJECTION MAP
+// TIMELINE PROJECTION MAP VISUALIZER
 // ==========================================
 function TimelineProjectionMap({ schedules, detailed = false }) {
+    if (!schedules || schedules.length === 0) {
+        return (
+            <div className={`section-card ${detailed ? '' : 'chart-card'}`}>
+                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--podx-text-muted)' }}>
+                    No milestones scheduled yet
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className={`section-card ${detailed ? '' : 'chart-card'}`}>
             <div className="chart-header">
                 <div>
-                    <h4>Milestone Schedule & Deadlines Map</h4>
+                    <h4>Milestone Schedule &amp; Deadlines Map</h4>
                     <span className="chart-subtitle">Component Distribution vs Student Completion Target</span>
                 </div>
             </div>
@@ -1683,7 +2790,7 @@ function TimelineProjectionMap({ schedules, detailed = false }) {
             <div className="timeline-cards-list">
                 {schedules.map(s => {
                     const daysComp = getDaysRemaining(s.componentIssueDeadline);
-                    const daysStudent = getDaysRemaining(s.studentCompletionDeadline);
+                    const daysStudent = getDaysRemaining(s.studentCompletionDeadline || s.dueDate);
                     const pct = Math.round(((s.completedExperiments || 0) / (s.totalExperiments || 10)) * 100);
 
                     return (
@@ -1719,7 +2826,7 @@ function TimelineProjectionMap({ schedules, detailed = false }) {
                                 <div className="timeline-point point-target">
                                     <span className="point-dot target-dot"></span>
                                     <span className="point-label">
-                                        <strong>Student Finish:</strong> {formatDate(s.studentCompletionDeadline)}
+                                        <strong>Student Finish:</strong> {formatDate(s.studentCompletionDeadline || s.dueDate)}
                                     </span>
                                     <span className={`micro-pill ${daysStudent < 0 ? 'over' : 'pending'}`}>
                                         {daysStudent < 0 ? 'Past Date' : `${daysStudent}d left`}
@@ -1734,7 +2841,7 @@ function TimelineProjectionMap({ schedules, detailed = false }) {
     );
 }
 
-// Mount the React Application
+// Mount React Root
 const rootElement = document.getElementById('root');
 if (rootElement) {
     const root = ReactDOM.createRoot(rootElement);

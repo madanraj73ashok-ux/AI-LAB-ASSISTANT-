@@ -1,6 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const { execFile } = require('child_process');
 const { PDFParse } = require('pdf-parse');
 
 // Models
@@ -836,74 +835,11 @@ const ROBOTICS_EXPERIMENTS = [
 ];
 
 /**
- * Executes Python Docling Document Converter (Dave Ebbelaar AI Cookbook recipe).
- * Returns structured Markdown preserving headings, tables, and lists.
- */
-function extractWithDocling(filePath) {
-    return new Promise((resolve) => {
-        try {
-            if (!filePath || !fs.existsSync(filePath)) {
-                return resolve(null);
-            }
-            const scriptPath = path.join(__dirname, 'docling_reader.py');
-            execFile('python', [scriptPath, filePath], { timeout: 45000 }, (error, stdout) => {
-                if (error) {
-                    return resolve(null);
-                }
-                try {
-                    const parsed = JSON.parse(stdout.trim());
-                    if (parsed && parsed.success && parsed.markdown) {
-                        console.log(`🤖 Docling AI Reader: Successfully extracted ${parsed.length} chars (Markdown) from ${path.basename(filePath)}`);
-                        return resolve(parsed.markdown);
-                    }
-                } catch (e) {
-                    // Fall back
-                }
-                resolve(null);
-            });
-        } catch (e) {
-            resolve(null);
-        }
-    });
-}
-
-/**
  * Intelligent PDF Parser & Analyzer
- * Uses IBM Docling Document Converter for structured layout & markdown extraction,
- * with automatic fallback to PDFParse. Builds experiment records, apparatus inventory, and question sets.
+ * Uses PDFParse to extract text from laboratory guides and builds experiment records, apparatus inventory, and question sets.
  */
 async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubject = '', diskFilePath = '') {
     let rawText = '';
-    let engineUsed = 'pdf-parse';
-
-    // 1. Try Docling extraction (High-fidelity layout & markdown reader)
-    let tempFileCreated = false;
-    let targetPath = diskFilePath;
-
-    if (!targetPath && pdfBuffer && pdfBuffer.length > 64) {
-        const tempDir = path.join(__dirname, '..', 'uploads');
-        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-        targetPath = path.join(tempDir, `temp_docling_${Date.now()}.pdf`);
-        try {
-            fs.writeFileSync(targetPath, pdfBuffer);
-            tempFileCreated = true;
-        } catch (e) {
-            targetPath = '';
-        }
-    }
-
-    if (targetPath) {
-        const doclingText = await extractWithDocling(targetPath);
-        if (doclingText && doclingText.length > 50) {
-            rawText = doclingText;
-            engineUsed = 'docling';
-        }
-        if (tempFileCreated && fs.existsSync(targetPath)) {
-            try { fs.unlinkSync(targetPath); } catch (e) {}
-        }
-    }
-
-    // 2. Fallback to PDFParse if Docling was not installed or produced empty text
     if (!rawText) {
         try {
             if (pdfBuffer && pdfBuffer.length > 64) {
@@ -1250,7 +1186,7 @@ async function syncLocalManualsToDatabase() {
             const stats = fs.statSync(filePathOnDisk);
             const pdfBuffer = fs.readFileSync(filePathOnDisk);
 
-            // Run analysis with Docling disk path
+            // Run analysis with PDF parser
             const analysis = await parseAndAnalyzeLabManual(pdfBuffer, fileName, 'Analog & Digital Circuits', filePathOnDisk);
 
             // 1. Save or Update LabManual
