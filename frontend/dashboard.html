@@ -140,96 +140,22 @@
                         </div>
                     </div>
 
-                    <!-- 2. Main 2-Column Split: Subjects Grid + Side Tabular Column -->
-                    <div class="dashboard-split-layout">
-
-                        <!-- LEFT COLUMN: Subjects with Images & "Select these" button -->
-                        <div class="dashboard-left-content">
-                            <div class="section-title-row">
-                                <div>
-                                    <h2 class="portal-section-heading">Enrolled Lab Subjects</h2>
-                                    <p class="portal-section-sub">Choose a subject to access experiments, hardware manuals, and pre-lab assessments</p>
-                                </div>
-                                <div class="project-tag-pill">
-                                    <span>📁</span> For my project-related
-                                </div>
+                    <!-- 2. Enrolled Lab Subjects (Full-width grid) -->
+                    <div class="dashboard-full-content">
+                        <div class="section-title-row">
+                            <div>
+                                <h2 class="portal-section-heading">Enrolled Lab Subjects</h2>
+                                <p class="portal-section-sub">Choose a subject to access experiments, hardware manuals, and pre-lab assessments</p>
                             </div>
-
-                            <!-- Course / Subject Cards Grid populated dynamically -->
-                            <div class="subjects-course-grid" id="dashboardSubjectsGrid">
-                                <div style="color: var(--text-muted); padding: 2rem; grid-column: 1/-1;">Loading enrolled subjects...</div>
+                            <div class="project-tag-pill">
+                                <span>📁</span> For my project-related
                             </div>
                         </div>
 
-                        <!-- RIGHT COLUMN: Side Tabular Column (Finished Experiments & Live Updates) -->
-                        <div class="dashboard-right-tabular">
-                            <div class="tabular-column-card">
-                                <div class="tabular-header">
-                                    <div>
-                                        <h3 class="tabular-heading">Practical Progress & Updates</h3>
-                                        <p class="tabular-sub" id="sidePracticalNameSub">Connecting to MongoDB...</p>
-                                    </div>
-                                    <div class="tabular-switch-buttons">
-                                        <button type="button" class="tabular-switch-btn active" id="tabBtnFinished" onclick="switchTabularTab('finished')">
-                                            Finished (<span id="tabularFinishedCount">0</span>)
-                                        </button>
-                                        <button type="button" class="tabular-switch-btn" id="tabBtnUpdates" onclick="switchTabularTab('updates')">
-                                            Live Updates
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <!-- Tab Panel 1: Finished Experiments Table -->
-                                <div class="tabular-panel active" id="panelFinishedExp">
-                                    <div class="stat-highlight-box">
-                                        <div class="highlight-ring-badge">
-                                            <span class="highlight-num" id="metricFinishedRatio">0/10</span>
-                                            <span class="highlight-lbl">Finished</span>
-                                        </div>
-                                        <div class="highlight-info-text">
-                                            <h4 id="metricPracticalSession">Practical Session</h4>
-                                            <p id="metricPracticalStatusDesc">Experiments finished and verified by lab faculty</p>
-                                        </div>
-                                    </div>
-
-                                    <div class="tabular-table-container">
-                                        <table class="tabular-data-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>EXP #</th>
-                                                    <th>SUBJECT / TOPIC</th>
-                                                    <th>STATUS</th>
-                                                    <th>STAFF</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="finishedTableBody">
-                                                <tr><td colspan="4" class="table-empty-row">Loading finished experiments...</td></tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-
-                                <!-- Tab Panel 2: Live Updates Table -->
-                                <div class="tabular-panel" id="panelLiveUpdates">
-                                    <div class="tabular-table-container">
-                                        <table class="tabular-data-table">
-                                            <thead>
-                                                <tr>
-                                                    <th>EVENT</th>
-                                                    <th>DETAILS</th>
-                                                    <th>TIME</th>
-                                                    <th>STATUS</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="liveUpdatesTableBody">
-                                                <tr><td colspan="4" class="table-empty-row">Loading live lab updates...</td></tr>
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </div>
-                            </div>
+                        <!-- Course / Subject Cards Grid populated dynamically -->
+                        <div class="subjects-course-grid" id="dashboardSubjectsGrid">
+                            <div style="color: var(--text-muted); padding: 2rem; grid-column: 1/-1;">Loading enrolled subjects...</div>
                         </div>
-
                     </div>
 
                     <!-- Hidden Metric Data Holders to Preserve System Compatibility -->

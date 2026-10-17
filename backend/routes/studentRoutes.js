@@ -171,52 +171,6 @@ router.get('/dashboard-overview', async (req, res) => {
             });
         }
 
-        // 6. Live updates feed for the side column
-        const liveLabUpdates = [];
-
-        // Add exam attempts
-        recentAttempts.slice(0, 3).forEach(a => {
-            liveLabUpdates.push({
-                title: `${a.experimentNumber} Pre-Lab Assessment`,
-                subject: a.subject,
-                status: a.passed ? 'Passed ✓' : 'Attempted',
-                statusClass: a.passed ? 'passed' : 'warning',
-                timestamp: a.submissionTime || a.createdAt,
-                details: `Score: ${a.score}/${a.totalMarks} • Pass status recorded`
-            });
-        });
-
-        // Add component issues or returns
-        const issues = await ComponentIssue.find({
-            $or: [
-                { studentUsername: student.username },
-                { groupId: student.registrationId || student.username }
-            ]
-        }).sort({ createdAt: -1 }).limit(3).lean();
-
-        issues.forEach(iss => {
-            liveLabUpdates.push({
-                title: `${iss.experimentNumber} Hardware Issue`,
-                subject: iss.groupName || student.fullName || student.username,
-                status: iss.status || 'Issued',
-                statusClass: iss.status === 'Issued' ? 'passed' : 'info',
-                timestamp: iss.issueTimestamp || iss.createdAt,
-                details: `${(iss.components || []).length} components allocated at workbench`
-            });
-        });
-
-        // Add default welcome notification if updates list is empty
-        if (liveLabUpdates.length === 0) {
-            liveLabUpdates.push({
-                title: 'Student Portal Active',
-                subject: 'AI Lab Management System',
-                status: 'Online',
-                statusClass: 'passed',
-                timestamp: new Date(),
-                details: 'Choose a subject below to begin pre-lab assessment and practical session.'
-            });
-        }
-
         res.json({
             success: true,
             data: {
@@ -226,8 +180,7 @@ router.get('/dashboard-overview', async (req, res) => {
                 experimentsRemaining,
                 practicalStatus,
                 currentLabSessionStatus: currentSessionStatus,
-                recentActivity,
-                liveLabUpdates
+                recentActivity
             }
         });
     } catch (err) {
