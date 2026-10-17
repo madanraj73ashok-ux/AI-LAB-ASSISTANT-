@@ -175,31 +175,68 @@
                 </section>
 
         <!-- ==========================================
-             VIEW 2: SUBJECT & EXPERIMENT SELECTION
+             VIEW 2: SUBJECT EXPERIMENTS & LAB MANUAL
              ========================================== -->
         <section id="view-experiments" class="view-section">
-            <div class="page-header">
-                <div>
-                    <h1 class="page-title">Which subject would you <span class="accent">like to work on today?</span></h1>
-                <p class="page-subtitle">Select a subject to view its experiments and start your AI assessment.</p>
+            
+            <!-- Breadcrumb Navigation & Subject Switcher -->
+            <div class="subject-hub-topbar">
+                <button type="button" class="back-nav-btn" onclick="switchTab('dashboard')">
+                    ← Back to Enrolled Subjects
+                </button>
+                <div class="subject-switcher-wrap">
+                    <span class="switcher-lbl">Current Subject:</span>
+                    <select id="subjectSwitcherDropdown" class="subject-dropdown" onchange="selectSubject(this.value)">
+                        <!-- Populated dynamically with enrolled subjects -->
+                    </select>
                 </div>
             </div>
 
-            <!-- Step 1: Select Subject -->
-            <div style="margin-bottom: 2.2rem;">
-                <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; color: var(--purple-light);">
-                    Step 1: Select Subject
-                </h3>
-                <div class="subjects-grid" id="subjectsContainer">
-                    <!-- Populated dynamically via student.js -->
+            <!-- Subject Header Banner -->
+            <div class="subject-header-banner" id="subjectHeaderBanner">
+                <div class="subject-banner-info">
+                    <div class="subject-meta-tags">
+                        <span class="subject-code-tag" id="hubSubjectCode">LAB</span>
+                        <span class="subject-lab-pill" id="hubSubjectLab">Laboratory</span>
+                    </div>
+                    <h1 class="subject-banner-title" id="hubSubjectTitle">Select Subject</h1>
+                    <p class="subject-banner-dept" id="hubSubjectDept">Department</p>
+                </div>
+                <div class="subject-banner-stats">
+                    <div class="hub-stat-item">
+                        <span class="hub-stat-num" id="hubStatTotal">0</span>
+                        <span class="hub-stat-lbl">Total Experiments</span>
+                    </div>
+                    <div class="hub-stat-item passed">
+                        <span class="hub-stat-num" id="hubStatPassed">0</span>
+                        <span class="hub-stat-lbl">Passed</span>
+                    </div>
+                    <div class="hub-stat-item remaining">
+                        <span class="hub-stat-num" id="hubStatRemaining">0</span>
+                        <span class="hub-stat-lbl">Remaining</span>
+                    </div>
                 </div>
             </div>
 
-            <!-- Step 2: Select Experiment -->
-            <div>
-                <h3 class="page-title" id="selectedSubjectTitle" style="font-size: 1.3rem; margin-bottom: 1.2rem;">
-                    Step 2: Select Experiment
-                </h3>
+            <!-- Dedicated Subject Lab Manual Card -->
+            <div class="subject-manual-card" id="subjectManualCard">
+                <!-- Populated dynamically via student.js -->
+            </div>
+
+            <!-- Experiment-Related Section -->
+            <div class="subject-experiments-section">
+                <div class="experiments-section-header">
+                    <div>
+                        <h2 class="section-heading" id="selectedSubjectTitle">Laboratory Experiments</h2>
+                        <p class="section-sub">Individual pre-lab assessment unlocks practical session and hardware component issuance</p>
+                    </div>
+                    <div class="experiment-filters-bar" id="experimentFiltersBar">
+                        <button type="button" class="exp-filter-btn active" data-filter="all" onclick="filterExperiments('all')">All</button>
+                        <button type="button" class="exp-filter-btn" data-filter="available" onclick="filterExperiments('available')">Available</button>
+                        <button type="button" class="exp-filter-btn" data-filter="passed" onclick="filterExperiments('passed')">Passed</button>
+                    </div>
+                </div>
+
                 <div class="experiments-list" id="experimentsContainer">
                     <!-- Populated dynamically via student.js -->
                 </div>

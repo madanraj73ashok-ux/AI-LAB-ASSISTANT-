@@ -282,8 +282,8 @@ router.get('/experiments', async (req, res) => {
 
         const experiments = await Experiment.find(query).sort({ experimentNumber: 1 }).lean();
 
-        // Get student's attempts and active sessions across these experiments
-        const [studentAttempts, studentSessions, questionSets] = await Promise.all([
+        // Get student's attempts, active sessions, question sets, and lab manuals across these experiments
+        const [studentAttempts, studentSessions, questionSets, allManuals] = await Promise.all([
             ExamAttempt.find({ studentUsername: student.username }).sort({ createdAt: -1 }).lean(),
             LabSession.find({
                 $or: [
@@ -291,7 +291,8 @@ router.get('/experiments', async (req, res) => {
                     { studentNames: student.fullName || student.username }
                 ]
             }).lean(),
-            QuestionSet.find({ isPublished: true }).lean()
+            QuestionSet.find({ isPublished: true }).lean(),
+            LabManual.find({ isPublished: true }).lean()
         ]);
 
         const qSetMap = {};
@@ -299,7 +300,36 @@ router.get('/experiments', async (req, res) => {
             qSetMap[q.experimentNumber] = q;
         });
 
-        // Map experiments with real dynamic status
+        // Find primary subject manual
+        let subjectManual = null;
+        if (subject) {
+            subjectManual = allManuals.find(m => m.subject === subject);
+            if (!subjectManual) {
+                const sLower = subject.toLowerCase();
+                subjectManual = allManuals.find(m => {
+                    const mSubj = (m.subject || '').toLowerCase();
+                    const mTitle = (m.title || '').toLowerCase();
+                    const mFile = (m.fileName || '').toLowerCase();
+                    if (sLower.includes('robot') && (mSubj.includes('robot') || mFile.includes('robot') || mTitle.includes('robot'))) return true;
+                    if ((sLower.includes('aec') || sLower.includes('analog')) && (mSubj.includes('analog') || mSubj.includes('aec') || mFile.includes('adc') || mTitle.includes('analog'))) return true;
+                    if ((sLower.includes('control') || sLower.includes('cs')) && (mSubj.includes('control') || mSubj.includes('cs') || mFile.includes('cs') || mTitle.includes('control'))) return true;
+                    return false;
+                });
+            }
+        }
+        if (!subjectManual && allManuals.length > 0) {
+            subjectManual = allManuals[0];
+        }
+
+        const formattedSubjectManual = subjectManual ? {
+            title: subjectManual.title,
+            fileName: subjectManual.originalFileName || subjectManual.fileName,
+            fileUrl: `/${subjectManual.filePath}`,
+            fileSize: subjectManual.fileSize,
+            version: subjectManual.version || 1
+        } : null;
+
+        // Map experiments with real dynamic status and manual
         const enrichedExperiments = experiments.map(exp => {
             const expAttempts = studentAttempts.filter(a => a.experimentNumber === exp.experimentNumber);
             const passedAttempt = expAttempts.find(a => a.passed === true);
@@ -353,6 +383,18 @@ router.get('/experiments', async (req, res) => {
                 canAttempt = !!qSet;
             }
 
+            // Experiment specific or subject-wide manual
+            const expManualDoc = allManuals.find(m => m.experimentNumber === exp.experimentNumber && m.subject === exp.subject)
+                || allManuals.find(m => m.subject === exp.subject)
+                || subjectManual;
+
+            const expManual = expManualDoc ? {
+                title: expManualDoc.title,
+                fileName: expManualDoc.originalFileName || expManualDoc.fileName,
+                fileUrl: `/${expManualDoc.filePath}`,
+                fileSize: expManualDoc.fileSize
+            } : null;
+
             return {
                 _id: exp._id,
                 experimentNumber: exp.experimentNumber,
@@ -370,13 +412,15 @@ router.get('/experiments', async (req, res) => {
                 statusDetails,
                 canAttempt,
                 attemptsCount: expAttempts.length,
-                bestScore: expAttempts.length > 0 ? Math.max(...expAttempts.map(a => a.score || 0)) : null
+                bestScore: expAttempts.length > 0 ? Math.max(...expAttempts.map(a => a.score || 0)) : null,
+                manual: expManual
             };
         });
 
         res.json({
             success: true,
-            data: enrichedExperiments
+            data: enrichedExperiments,
+            subjectManual: formattedSubjectManual
         });
     } catch (err) {
         console.error('Experiments fetch error:', err);

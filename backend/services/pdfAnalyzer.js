@@ -839,6 +839,7 @@ const ROBOTICS_EXPERIMENTS = [
  * Uses PDFParse to extract text from laboratory guides and builds experiment records, apparatus inventory, and question sets.
  */
 async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubject = '', diskFilePath = '') {
+    const engineUsed = 'pdf-parse';
     let rawText = '';
     if (!rawText) {
         try {
@@ -879,10 +880,16 @@ async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubje
         detectedLab = detectedSubject.toLowerCase().includes('lab') ? detectedSubject : `${detectedSubject} Laboratory`;
     } else {
         // Auto-detect from filename and PDF content
-        if (combinedContent.includes('robot') || combinedContent.includes('kinematic') || combinedContent.includes('manipulator') || combinedContent.includes('end-effector') || combinedContent.includes('gripper') || cleanName.includes('robot')) {
-            detectedSubject = 'Robotics and Automation';
-            detectedLab = 'Robotics and Automation Laboratory';
-        } else if (combinedContent.includes('op-amp') || combinedContent.includes('clipper') || combinedContent.includes('clamper') || combinedContent.includes('adder') || combinedContent.includes('adc lab') || cleanName.includes('adc') || combinedContent.includes('analog') || combinedContent.includes('digital circuit')) {
+        if (cleanName.includes('robot') || combinedContent.includes('robot') || combinedContent.includes('kinematic')) {
+            detectedSubject = 'ROBOTICS LAB (Robotics and Automation)';
+            detectedLab = 'Robotics & Automation Laboratory';
+        } else if (cleanName.includes('cs') || cleanName.includes('control') || combinedContent.includes('control')) {
+            detectedSubject = 'CS (Control Systems)';
+            detectedLab = 'Control Systems Laboratory';
+        } else if (cleanName.includes('aec')) {
+            detectedSubject = 'AEC (Analog Electronic Circuits)';
+            detectedLab = 'Analog Electronics Laboratory';
+        } else if (cleanName.includes('adc') || combinedContent.includes('op-amp') || combinedContent.includes('clipper') || cleanName.includes('analog')) {
             detectedSubject = 'Analog & Digital Circuits';
             detectedLab = 'Analog & Digital Circuits Laboratory';
         } else if (combinedContent.includes('iot') || combinedContent.includes('embedded') || combinedContent.includes('microcontroller') || combinedContent.includes('arduino') || combinedContent.includes('8051')) {
@@ -1186,8 +1193,8 @@ async function syncLocalManualsToDatabase() {
             const stats = fs.statSync(filePathOnDisk);
             const pdfBuffer = fs.readFileSync(filePathOnDisk);
 
-            // Run analysis with PDF parser
-            const analysis = await parseAndAnalyzeLabManual(pdfBuffer, fileName, 'Analog & Digital Circuits', filePathOnDisk);
+            // Run analysis with PDF parser (auto-detect subject from filename and content)
+            const analysis = await parseAndAnalyzeLabManual(pdfBuffer, fileName, '', filePathOnDisk);
 
             // 1. Save or Update LabManual
             let manualDoc = await LabManual.findOne({ fileName: fileName });

@@ -239,15 +239,15 @@ async function loadDashboardOverview() {
 async function loadSubjects() {
     const res = await studentFetch('/subjects');
     const dashGrid = document.getElementById('dashboardSubjectsGrid');
-    const expContainer = document.getElementById('subjectsContainer');
 
     if (!res.success || !res.data || res.data.length === 0) {
         if (dashGrid) dashGrid.innerHTML = `<p style="color: var(--text-muted); grid-column: 1/-1;">No subjects currently available.</p>`;
-        if (expContainer) expContainer.innerHTML = `<p style="color: var(--text-muted); grid-column: 1/-1;">No subjects available.</p>`;
         return;
     }
 
-    // 1. Populate Dashboard Grid (Ref: User UI Images 2 & 3 with 'Select these' / 'For my project-related')
+    state.subjects = res.data;
+
+    // 1. Populate Dashboard Grid (Ref: User UI Images with 'Select these' / 'For my project-related')
     if (dashGrid) {
         dashGrid.innerHTML = res.data.map(subj => {
             const completionPercent = subj.availableExperiments > 0 
@@ -255,13 +255,13 @@ async function loadSubjects() {
                 : 0;
 
             return `
-                <div class="course-card-item">
+                <div class="course-card-item" onclick="selectSubjectAndOpen('${escapeHtml(subj.subjectName)}')">
                     <div class="course-card-thumb-wrap">
                         <img src="${escapeHtml(subj.imageUrl || '/images/aec_lab_cover.jpg')}" alt="${escapeHtml(subj.subjectName)}" class="course-card-img" />
                         <div class="card-rating-badge">
                             <span>⭐</span> ${escapeHtml(subj.rating || '5.0 (42)')}
                         </div>
-                        <button type="button" class="card-bookmark-icon" title="Save to project wishlist">
+                        <button type="button" class="card-bookmark-icon" title="Save to project wishlist" onclick="event.stopPropagation()">
                             🔖
                         </button>
                     </div>
@@ -283,7 +283,7 @@ async function loadSubjects() {
                             </div>
                         </div>
 
-                        <button type="button" class="btn-select-course" onclick="selectSubjectAndOpen('${escapeHtml(subj.subjectName)}')">
+                        <button type="button" class="btn-select-course" onclick="event.stopPropagation(); selectSubjectAndOpen('${escapeHtml(subj.subjectName)}')">
                             Select these
                         </button>
                     </div>
@@ -292,75 +292,143 @@ async function loadSubjects() {
         }).join('');
     }
 
-    // 2. Populate View-Experiments Container
-    if (expContainer) {
-        expContainer.innerHTML = res.data.map(subj => `
-            <div class="subject-card ${state.selectedSubject === subj.subjectName ? 'selected' : ''}" onclick="selectSubject('${escapeHtml(subj.subjectName)}')">
-                <div>
-                    <div class="subject-header">
-                        <span class="subject-code-tag">${escapeHtml(subj.subjectCode)}</span>
-                        <span style="font-size: 0.8rem; color: var(--purple-light);">Select Subject →</span>
-                    </div>
-                    <h3 class="subject-title">${escapeHtml(subj.subjectName)}</h3>
-                    <p class="subject-lab">${escapeHtml(subj.laboratory)}</p>
-                </div>
-                <div class="subject-stats-bar">
-                    <div class="stat-item">
-                        <span class="num">${subj.availableExperiments}</span>
-                        <span class="lbl">Total</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="num" style="color: #10b981;">${subj.passedExperiments}</span>
-                        <span class="lbl">Passed</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="num" style="color: #f59e0b;">${subj.remainingExperiments}</span>
-                        <span class="lbl">Remaining</span>
-                    </div>
-                </div>
-                <button class="primary-btn" onclick="selectSubject('${escapeHtml(subj.subjectName)}')">View Experiments →</button>
-            </div>
+    // 2. Populate Subject Switcher Dropdown in Experiments View
+    const dropdown = document.getElementById('subjectSwitcherDropdown');
+    if (dropdown) {
+        dropdown.innerHTML = res.data.map(s => `
+            <option value="${escapeHtml(s.subjectName)}" ${state.selectedSubject === s.subjectName ? 'selected' : ''}>
+                ${escapeHtml(s.subjectName)} (${s.passedExperiments}/${s.availableExperiments} Passed)
+            </option>
         `).join('');
     }
 
-    // If a subject is already selected or default to the first
+    // Default to first subject if none selected
     if (!state.selectedSubject && res.data.length > 0) {
         state.selectedSubject = res.data[0].subjectName;
-        loadExperimentsForSubject(state.selectedSubject);
-    } else if (state.selectedSubject) {
+    }
+
+    if (state.selectedSubject) {
         loadExperimentsForSubject(state.selectedSubject);
     }
 }
 
-// Select a subject from dashboard and open its experiments page
+// Select a subject from dashboard and open its experiments page directly
 window.selectSubjectAndOpen = function(subjectName) {
     state.selectedSubject = subjectName;
     switchTab('experiments');
-    selectSubject(subjectName);
+    loadExperimentsForSubject(subjectName);
 };
 
 window.selectSubject = function(subjectName) {
     state.selectedSubject = subjectName;
-    document.querySelectorAll('.subject-card').forEach(card => {
-        card.classList.toggle('selected', card.querySelector('.subject-title')?.textContent.trim() === subjectName);
-    });
+    const dropdown = document.getElementById('subjectSwitcherDropdown');
+    if (dropdown) dropdown.value = subjectName;
     loadExperimentsForSubject(subjectName);
 };
 
 async function loadExperimentsForSubject(subjectName) {
-    const titleEl = document.getElementById('selectedSubjectTitle');
-    if (titleEl) titleEl.textContent = `${subjectName} Experiments`;
+    // 1. Update Subject Hub Header Banner
+    const currSubj = (state.subjects || []).find(s => s.subjectName === subjectName);
+    const titleEl = document.getElementById('hubSubjectTitle');
+    const codeEl = document.getElementById('hubSubjectCode');
+    const labEl = document.getElementById('hubSubjectLab');
+    const deptEl = document.getElementById('hubSubjectDept');
+    const statTotal = document.getElementById('hubStatTotal');
+    const statPassed = document.getElementById('hubStatPassed');
+    const statRemaining = document.getElementById('hubStatRemaining');
+    const sectionTitle = document.getElementById('selectedSubjectTitle');
 
+    if (titleEl) titleEl.textContent = subjectName;
+    if (codeEl) codeEl.textContent = currSubj?.subjectCode || 'LAB';
+    if (labEl) labEl.textContent = currSubj?.laboratory || 'Laboratory';
+    if (deptEl) deptEl.textContent = currSubj?.dept || 'Department of Engineering';
+    if (statTotal) statTotal.textContent = currSubj?.availableExperiments ?? 0;
+    if (statPassed) statPassed.textContent = currSubj?.passedExperiments ?? 0;
+    if (statRemaining) statRemaining.textContent = currSubj?.remainingExperiments ?? 0;
+    if (sectionTitle) sectionTitle.textContent = `${subjectName} Experiments`;
+
+    const dropdown = document.getElementById('subjectSwitcherDropdown');
+    if (dropdown && dropdown.value !== subjectName) dropdown.value = subjectName;
+
+    // 2. Fetch Experiments & Lab Manual for this Subject
     const res = await studentFetch(`/experiments?subject=${encodeURIComponent(subjectName)}`);
+    const manualCard = document.getElementById('subjectManualCard');
+    const container = document.getElementById('experimentsContainer');
+
+    // 3. Render Dedicated Subject Lab Manual Card
+    if (manualCard) {
+        if (res.subjectManual) {
+            manualCard.innerHTML = `
+                <div class="manual-card-inner">
+                    <div class="manual-card-left">
+                        <div class="manual-icon-badge">📖</div>
+                        <div class="manual-text-group">
+                            <div class="manual-status-row">
+                                <span class="manual-status-pill">Official Lab Manual</span>
+                                <span class="manual-format-pill">PDF Document</span>
+                                ${res.subjectManual.version ? `<span class="manual-format-pill">v${res.subjectManual.version}.0</span>` : ''}
+                            </div>
+                            <h3 class="manual-heading">${escapeHtml(res.subjectManual.title || `${subjectName} Official Lab Manual`)}</h3>
+                            <p class="manual-subtext">Verified curriculum guide. Review apparatus schematics, laboratory safety protocols, and pre-lab background material.</p>
+                        </div>
+                    </div>
+                    <div class="manual-card-actions">
+                        <a href="${res.subjectManual.fileUrl}" target="_blank" rel="noopener noreferrer" class="btn-open-manual">
+                            <span>📄</span> Open / Download Manual
+                        </a>
+                    </div>
+                </div>
+            `;
+            manualCard.style.display = 'block';
+        } else {
+            manualCard.innerHTML = `
+                <div class="manual-empty-state">
+                    <span>ℹ️</span> No official lab manual has been published for ${escapeHtml(subjectName)} yet.
+                </div>
+            `;
+            manualCard.style.display = 'block';
+        }
+    }
+
+    // 4. Render Experiments List strictly for this Subject
+    state.currentExperiments = res.data || [];
+    state.activeFilter = 'all';
+
+    // Reset filter buttons
+    document.querySelectorAll('.exp-filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-filter') === 'all');
+    });
+
+    renderFilteredExperiments();
+}
+
+window.filterExperiments = function(filter) {
+    state.activeFilter = filter;
+    document.querySelectorAll('.exp-filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-filter') === filter);
+    });
+    renderFilteredExperiments();
+};
+
+function renderFilteredExperiments() {
     const container = document.getElementById('experimentsContainer');
     if (!container) return;
 
-    if (!res.success || !res.data || res.data.length === 0) {
-        container.innerHTML = `<p style="color: var(--text-muted); padding: 2rem;">No experiments published under ${escapeHtml(subjectName)}.</p>`;
+    let list = state.currentExperiments || [];
+    const filter = state.activeFilter || 'all';
+
+    if (filter === 'available') {
+        list = list.filter(e => e.studentStatus === 'Test Available' || e.canAttempt);
+    } else if (filter === 'passed') {
+        list = list.filter(e => e.studentStatus === 'Passed' || e.studentStatus === 'Ready for Components' || e.studentStatus === 'Completed' || e.studentStatus === 'In Lab Session');
+    }
+
+    if (list.length === 0) {
+        container.innerHTML = `<p style="color: var(--text-muted); padding: 2rem;">No experiments match the "${escapeHtml(filter)}" filter.</p>`;
         return;
     }
 
-    container.innerHTML = res.data.map(exp => {
+    container.innerHTML = list.map(exp => {
         let badgeClass = 'not-started';
         if (exp.studentStatus === 'Test Available') badgeClass = 'test-available';
         if (exp.studentStatus === 'Test In Progress') badgeClass = 'test-in-progress';
@@ -397,6 +465,11 @@ async function loadExperimentsForSubject(subjectName) {
                 </div>
                 <div class="exp-actions">
                     <span class="badge-status ${badgeClass}">${escapeHtml(exp.studentStatus)}</span>
+                    ${exp.manual && exp.manual.fileUrl ? `
+                        <a href="${exp.manual.fileUrl}" target="_blank" rel="noopener noreferrer" class="secondary-btn" style="padding: 0.5rem 0.9rem; font-size: 0.82rem; text-decoration: none;" title="Open Lab Manual for this Experiment">
+                            📄 Manual
+                        </a>
+                    ` : ''}
                     <button class="${actionBtnClass}" onclick="openExperimentIntroduction('${escapeHtml(exp.experimentNumber)}')">
                         ${actionBtnText}
                     </button>
