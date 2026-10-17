@@ -387,15 +387,12 @@
                                 <span>100% Private</span>
                             </div>
                         </div>
-                        <div style="display: flex; gap: 6px; margin-top: 8px;">
-                            <button type="button" class="secondary-btn" id="uploadSnapshotManualBtn" onclick="triggerManualSnapshotUpload()" style="flex: 1; font-size: 0.72rem; padding: 6px; border-color: #3b82f6; color: #93c5fd; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                                <span>📸</span> Snap
+                        <div style="display: flex; gap: 8px; margin-top: 8px;">
+                            <button type="button" class="secondary-btn" id="uploadSnapshotManualBtn" onclick="triggerManualSnapshotUpload()" style="flex: 1; font-size: 0.75rem; padding: 7px; border-color: #3b82f6; color: #93c5fd; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                                <span>📸</span> Snap Proof
                             </button>
-                            <button type="button" class="secondary-btn" id="simulateEyesBtn" onclick="simulateEyesDownWarning()" style="flex: 1.1; font-size: 0.72rem; padding: 6px; border-color: #f59e0b; color: #fcd34d; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                                <span>👁️</span> Eyes Down
-                            </button>
-                            <button type="button" class="secondary-btn" id="simulatePhoneBtn" onclick="simulatePhoneDetection()" style="flex: 1; font-size: 0.72rem; padding: 6px; border-color: #ef4444; color: #fca5a5; display: flex; align-items: center; justify-content: center; gap: 4px;">
-                                <span>📱</span> Phone
+                            <button type="button" class="secondary-btn" id="simulatePhoneBtn" onclick="simulatePhoneDetection()" style="flex: 1; font-size: 0.75rem; padding: 7px; border-color: #ef4444; color: #fca5a5; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                                <span>📱</span> Test Phone AI
                             </button>
                         </div>
                     </div>
@@ -406,8 +403,8 @@
                             Integrity Status
                         </div>
                         <div class="integrity-item">
-                            <span class="integrity-dot" id="gazeStatusDot" style="background:#10b981;"></span>
-                            <span id="gazeStatusLabel">Eye / Gaze: <strong style="color: #10b981;">On Screen</strong></span>
+                            <span class="integrity-dot" id="faceStatusDot" style="background:#10b981;"></span>
+                            <span id="faceStatusLabel">Face Presence: <strong style="color: #10b981;">Verified</strong></span>
                         </div>
                         <div class="integrity-item">
                             <span class="integrity-dot"></span>
@@ -623,28 +620,6 @@
             <div id="phoneCountdownText" style="font-size: 1.05rem; color: #f87171; font-weight: 700; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px;">
                 Exiting website in 3 seconds...
             </div>
-        </div>
-    </div>
-
-    <!-- ====================================================================
-         EYES CLOSED / DOWN 3-SECOND COUNTDOWN WARNING BANNER
-         ==================================================================== -->
-    <div id="eyesWarningBanner" style="display: none; position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 99999; width: 92%; max-width: 620px; background: rgba(220, 38, 38, 0.96); border: 2px solid #fecaca; border-radius: 16px; padding: 18px 24px; color: #ffffff; box-shadow: 0 12px 48px rgba(220, 38, 38, 0.6); backdrop-filter: blur(12px); animation: pulse 1s infinite;">
-        <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px;">
-            <div style="display: flex; align-items: center; gap: 16px;">
-                <span style="font-size: 2.6rem;">👁️ ⚠️</span>
-                <div>
-                    <h3 style="margin: 0; font-size: 1.18rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">EYES CLOSED / LOOKING DOWN DETECTED!</h3>
-                    <p style="margin: 5px 0 0; font-size: 0.9rem; opacity: 0.95; line-height: 1.4;">Please focus your eyes directly on the exam screen immediately.</p>
-                </div>
-            </div>
-            <div style="display: flex; flex-direction: column; align-items: center; background: rgba(0,0,0,0.35); border-radius: 12px; padding: 8px 16px; min-width: 88px;">
-                <span style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.85;">Suspending in</span>
-                <span id="eyesCountdownNumber" style="font-size: 2rem; font-weight: 900; line-height: 1; color: #fef08a;">3s</span>
-            </div>
-        </div>
-        <div style="height: 5px; background: rgba(255,255,255,0.25); border-radius: 3px; margin-top: 12px; overflow: hidden;">
-            <div id="eyesCountdownBar" style="height: 100%; width: 100%; background: #fef08a; transition: width 0.1s linear;"></div>
         </div>
     </div>
 

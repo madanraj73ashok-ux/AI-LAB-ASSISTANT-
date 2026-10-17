@@ -600,13 +600,7 @@ window.startExamSession = async function() {
     state.examAnswers = {};
     state.currentQuestionIndex = 0;
     state.examWarningCount = 0;
-    state.eyesDeviationStartTime = null;
-    state.isSuspended = false;
     state.isEjecting = false;
-
-    // Reset warning banner
-    const eyesBanner = document.getElementById('eyesWarningBanner');
-    if (eyesBanner) eyesBanner.style.display = 'none';
 
     // Switch to Exam HUD
     switchTab('exam');
@@ -865,10 +859,6 @@ function stopExamMonitoring() {
     window.removeEventListener('paste', preventExamPaste);
     window.removeEventListener('contextmenu', preventExamContextMenu);
 
-    const eyesBanner = document.getElementById('eyesWarningBanner');
-    if (eyesBanner) eyesBanner.style.display = 'none';
-    state.eyesDeviationStartTime = null;
-
     if (state.snapshotInterval) {
         clearInterval(state.snapshotInterval);
         state.snapshotInterval = null;
@@ -973,7 +963,7 @@ async function loadBlazeFaceModel() {
     if (window.blazeface) {
         try {
             globalBlazeModel = await window.blazeface.load();
-            console.log('✅ BlazeFace Model Loaded for Face & Eye Tracking');
+            console.log('✅ BlazeFace Model Loaded for Face Presence Verification');
             return globalBlazeModel;
         } catch (err) {
             console.warn('Failed to load BlazeFace:', err);
@@ -982,15 +972,15 @@ async function loadBlazeFaceModel() {
     return null;
 }
 
-// Transparent on-device camera presence, gaze tracking & mobile phone detection
+// Transparent on-device camera presence, face verification & mobile phone detection
 async function initCameraMonitoring() {
     const video = document.getElementById('cameraVideo');
     const overlayCanvas = document.getElementById('cameraCanvas');
     const statusText = document.getElementById('cameraStatusText');
     const phoneDot = document.getElementById('phoneStatusDot');
     const phoneLabel = document.getElementById('phoneStatusLabel');
-    const gazeDot = document.getElementById('gazeStatusDot');
-    const gazeLabel = document.getElementById('gazeStatusLabel');
+    const faceDot = document.getElementById('faceStatusDot');
+    const faceLabel = document.getElementById('faceStatusLabel');
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -1013,11 +1003,11 @@ async function initCameraMonitoring() {
             loadBlazeFaceModel()
         ]);
 
-        if (statusText) statusText.textContent = 'Active (Eye & Phone AI)';
+        if (statusText) statusText.textContent = 'Active (Face & Phone AI)';
         if (phoneDot) phoneDot.style.background = '#10b981';
         if (phoneLabel) phoneLabel.innerHTML = 'Phone Detection: <strong style="color: #10b981;">Active</strong>';
-        if (gazeDot) gazeDot.style.background = '#10b981';
-        if (gazeLabel) gazeLabel.innerHTML = 'Eye / Gaze: <strong style="color: #10b981;">On Screen</strong>';
+        if (faceDot) faceDot.style.background = '#10b981';
+        if (faceLabel) faceLabel.innerHTML = 'Face Presence: <strong style="color: #10b981;">Verified</strong>';
 
         // Initialize snapshot counter
         state.uploadedSnapshotsCount = 0;
@@ -1075,90 +1065,34 @@ async function initCameraMonitoring() {
                     }
                 }
 
-                // --- 2. EYE CLOSED & LOOKING DOWN DETECTION (BlazeFace & Geometry) ---
-                let isEyesDownOrClosed = false;
-                let deviationReason = '';
-
+                // --- 2. FACE PRESENCE DETECTION (BlazeFace) ---
                 if (blazeModel) {
                     const faces = await blazeModel.estimateFaces(video, false);
-                    if (!faces || faces.length === 0) {
-                        isEyesDownOrClosed = true;
-                        deviationReason = 'Face Absent / Looking Away';
-                    } else {
+                    const facePresent = faces && faces.length > 0;
+
+                    if (faceDot) faceDot.style.background = facePresent ? '#10b981' : '#f59e0b';
+                    if (faceLabel) faceLabel.innerHTML = facePresent
+                        ? 'Face Presence: <strong style="color: #10b981;">Verified</strong>'
+                        : 'Face Presence: <strong style="color: #f59e0b;">Not Detected</strong>';
+
+                    if (facePresent && ctx) {
                         const face = faces[0];
-                        const rightEye = face.landmarks[0]; // [x, y]
-                        const leftEye = face.landmarks[1];  // [x, y]
-                        const nose = face.landmarks[2];     // [x, y]
-                        const mouth = face.landmarks[3];    // [x, y]
                         const [x1, y1] = face.topLeft;
                         const [x2, y2] = face.bottomRight;
                         const faceH = y2 - y1;
                         const faceW = x2 - x1;
 
-                        const eyeY = (rightEye[1] + leftEye[1]) / 2;
-                        const eyeRelativeY = (eyeY - y1) / (faceH || 1);
-                        const noseToEyeDist = nose[1] - eyeY;
-                        const mouthToNoseDist = mouth[1] - nose[1];
+                        ctx.strokeStyle = '#10b981';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(x1, y1, faceW, faceH);
 
-                        // Head pitch check: when looking down, eye level lowers and nose-to-eye distance compresses
-                        const isHeadDown = (eyeRelativeY > 0.43) || (noseToEyeDist < 0.72 * mouthToNoseDist);
-
-                        // Eye patch closed check: sample contrast around eyes
-                        let isEyeClosed = false;
-                        if (ctx && faceW > 30) {
-                            const eyePatchSize = Math.max(8, Math.floor(faceW * 0.12));
-                            let openContrastSum = 0;
-                            [rightEye, leftEye].forEach(pt => {
-                                try {
-                                    const pData = ctx.getImageData(Math.max(0, pt[0] - eyePatchSize/2), Math.max(0, pt[1] - eyePatchSize/2), eyePatchSize, eyePatchSize).data;
-                                    let minL = 255, maxL = 0;
-                                    for (let i = 0; i < pData.length; i += 4) {
-                                        const lum = 0.299 * pData[i] + 0.587 * pData[i+1] + 0.114 * pData[i+2];
-                                        if (lum < minL) minL = lum;
-                                        if (lum > maxL) maxL = lum;
-                                    }
-                                    openContrastSum += (maxL - minL);
-                                } catch(e) {}
-                            });
-                            if (openContrastSum < 32) {
-                                isEyeClosed = true;
-                            }
-                        }
-
-                        if (isHeadDown || isEyeClosed) {
-                            isEyesDownOrClosed = true;
-                            deviationReason = isEyeClosed ? 'Eyes Closed Detected' : 'Eyes Directed Downward Detected';
-                        }
-
-                        // Draw bounding box and eye landmarks
-                        if (ctx) {
-                            ctx.strokeStyle = isEyesDownOrClosed ? '#f59e0b' : '#10b981';
-                            ctx.lineWidth = 2;
-                            ctx.strokeRect(x1, y1, faceW, faceH);
-
-                            const label = isEyesDownOrClosed ? `⚠️ ${deviationReason}` : `Examinee (Eyes On Screen)`;
-                            ctx.fillStyle = isEyesDownOrClosed ? '#f59e0b' : '#10b981';
-                            ctx.font = 'bold 10px Inter, sans-serif';
-                            ctx.fillRect(x1, Math.max(0, y1 - 16), ctx.measureText(label).width + 8, 16);
-                            ctx.fillStyle = '#ffffff';
-                            ctx.fillText(label, x1 + 4, Math.max(12, y1 - 4));
-
-                            // Eye dots
-                            ctx.fillStyle = isEyesDownOrClosed ? '#ef4444' : '#38bdf8';
-                            [rightEye, leftEye].forEach(pt => {
-                                ctx.beginPath();
-                                ctx.arc(pt[0], pt[1], 4, 0, 2 * Math.PI);
-                                ctx.fill();
-                            });
-                        }
+                        const label = 'Examinee Verified';
+                        ctx.fillStyle = '#10b981';
+                        ctx.font = 'bold 10px Inter, sans-serif';
+                        ctx.fillRect(x1, Math.max(0, y1 - 16), ctx.measureText(label).width + 8, 16);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillText(label, x1 + 4, Math.max(12, y1 - 4));
                     }
-                }
-
-                // --- 3. HANDLE 3-SECOND GRACE TIMER FOR EYES DOWN / CLOSED ---
-                if (isEyesDownOrClosed) {
-                    handleEyesDeviationActive(deviationReason);
-                } else {
-                    handleEyesDeviationRecovered();
                 }
 
             } catch (cvErr) {
@@ -1320,142 +1254,8 @@ window.simulatePhoneDetection = function() {
     triggerPhoneDetectionEjection('Smartphone (Simulation)', 0.99);
 };
 
-// ==========================================
-// 10. EYES CLOSED / DOWN 3-SECOND COUNTDOWN & SUSPENSION
-// ==========================================
-function handleEyesDeviationActive(reason = 'Eyes Closed / Down') {
-    if (state.isSuspended || state.isEjecting) return;
 
-    if (!state.eyesDeviationStartTime) {
-        state.eyesDeviationStartTime = Date.now();
-        console.warn(`⚠️ Gaze deviation detected (${reason}). Starting 3-second grace window.`);
-    }
 
-    const elapsedMs = Date.now() - state.eyesDeviationStartTime;
-    const remainingSec = Math.max(0, 3 - (elapsedMs / 1000));
-
-    // Show on-screen warning banner
-    const banner = document.getElementById('eyesWarningBanner');
-    const numEl = document.getElementById('eyesCountdownNumber');
-    const barEl = document.getElementById('eyesCountdownBar');
-    const gazeDot = document.getElementById('gazeStatusDot');
-    const gazeLabel = document.getElementById('gazeStatusLabel');
-
-    if (banner) banner.style.display = 'block';
-    if (numEl) numEl.textContent = `${Math.ceil(remainingSec)}s`;
-    if (barEl) barEl.style.width = `${(remainingSec / 3) * 100}%`;
-
-    if (gazeDot) gazeDot.style.background = '#ef4444';
-    if (gazeLabel) gazeLabel.innerHTML = `Eye / Gaze: <strong style="color: #ef4444;">${escapeHtml(reason).toUpperCase()}</strong>`;
-
-    // If 3 seconds has passed without recovery -> SUSPEND
-    if (elapsedMs >= 3000) {
-        triggerExamSuspension(`Eyes closed or directed down for >3 seconds (${reason})`);
-    }
-}
-
-function handleEyesDeviationRecovered() {
-    if (state.isSuspended || state.isEjecting) return;
-
-    if (state.eyesDeviationStartTime) {
-        console.log('✓ Student gaze returned to screen within grace period. Countdown reset.');
-        state.eyesDeviationStartTime = null;
-    }
-
-    const banner = document.getElementById('eyesWarningBanner');
-    if (banner) banner.style.display = 'none';
-
-    const gazeDot = document.getElementById('gazeStatusDot');
-    const gazeLabel = document.getElementById('gazeStatusLabel');
-    if (gazeDot) gazeDot.style.background = '#10b981';
-    if (gazeLabel) gazeLabel.innerHTML = 'Eye / Gaze: <strong style="color: #10b981;">Looking at Screen</strong>';
-}
-
-window.triggerExamSuspension = async function(reason = 'Eyes closed or looking down for >3 seconds') {
-    if (state.isSuspended) return;
-    state.isSuspended = true;
-
-    // 1. Terminate local timers immediately
-    clearInterval(state.examTimerInterval);
-    if (state.cameraMonitoringInterval) {
-        clearInterval(state.cameraMonitoringInterval);
-        state.cameraMonitoringInterval = null;
-    }
-    if (state.snapshotInterval) {
-        clearInterval(state.snapshotInterval);
-        state.snapshotInterval = null;
-    }
-
-    // 2. Play warning tone
-    try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(320, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.5);
-    } catch (e) {}
-
-    // 3. Immediately capture evidence photo of eyes closed / down
-    try {
-        await captureAndUploadSnapshot('warning', reason);
-    } catch (e) {}
-
-    // 4. Stop camera hardware
-    if (state.cameraStream) {
-        state.cameraStream.getTracks().forEach(t => t.stop());
-        state.cameraStream = null;
-    }
-
-    // 5. Notify server of suspension
-    try {
-        if (state.activeExam) {
-            await studentFetch('/exams/event', {
-                method: 'POST',
-                body: JSON.stringify({
-                    attemptId: state.activeExam.attemptId,
-                    eventType: 'eyes_closed_down',
-                    action: 'suspend',
-                    details: reason
-                })
-            });
-        }
-    } catch (err) {
-        console.error('Suspension report error:', err);
-    }
-
-    // 6. Hide warning banner
-    const banner = document.getElementById('eyesWarningBanner');
-    if (banner) banner.style.display = 'none';
-
-    // 7. Alert examinee and return to dashboard
-    showToast('🛑 Assessment Suspended: Eyes closed or down for more than 3 seconds.', 'error');
-    alert(`🛑 ASSESSMENT SUSPENDED\n\nAcademic integrity policy enforced:\nYour eyes were detected closed or directed down/away for more than 3 seconds without recovery.\n\nYour exam attempt has been suspended and automatically submitted for staff review.`);
-
-    switchTab('dashboard');
-    loadDashboardOverview();
-};
-
-// Simulation trigger for testing eyes down warning without physical simulation
-window.simulateEyesDownWarning = function() {
-    if (!state.activeExam) {
-        showToast('Please start an exam session first before testing eyes down.', 'warning');
-        return;
-    }
-    showToast('Simulating eyes down / closed detection. Look at the screen warning!', 'warning');
-    state.eyesDeviationStartTime = Date.now();
-    const interval = setInterval(() => {
-        if (!state.eyesDeviationStartTime || state.isSuspended) {
-            clearInterval(interval);
-            return;
-        }
-        handleEyesDeviationActive('Eyes Down (Simulation)');
-    }, 150);
-};
 
 
 // ==========================================

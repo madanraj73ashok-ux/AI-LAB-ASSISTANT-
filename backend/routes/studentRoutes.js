@@ -670,31 +670,6 @@ router.post('/exams/event', async (req, res) => {
             });
         }
 
-        // IMMEDIATE SUSPENSION FOR EYES CLOSED / DOWN EXCEEDING 3 SECONDS
-        if ((eventType === 'eyes_closed_down' || eventType === 'looking_away') && req.body.action === 'suspend') {
-            attempt.warningCount = (attempt.warningCount || 0) + 1;
-            attempt.status = 'Terminated';
-            attempt.passed = false;
-            attempt.score = 0;
-            attempt.submissionTime = new Date();
-            attempt.durationSeconds = Math.round((attempt.submissionTime - attempt.startTime) / 1000);
-            attempt.monitoringEvents.push({
-                eventType: 'eyes_closed_down',
-                timestamp: new Date(),
-                details: details || 'Examinee eyes closed or looking down for >3 seconds without recovery',
-                confidence: typeof confidence === 'number' ? confidence : 1.0,
-                actionTaken: 'Suspended & Auto-Submitted'
-            });
-            await attempt.save();
-
-            return res.json({
-                success: true,
-                action: 'suspend_gaze',
-                warningCount: attempt.warningCount,
-                message: '🚨 EXAM SUSPENDED: Eyes closed or directed away from screen for more than 3 seconds.'
-            });
-        }
-
         // Fetch policy
         const qSet = await QuestionSet.findById(attempt.questionSetId).lean();
         const maxViolations = (qSet && qSet.maxViolationsBeforeSubmit) || 2;
