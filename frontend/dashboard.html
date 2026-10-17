@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Student Portal | AI Laboratory Management & Assessment</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="student.css">
+</head>
+<body class="portal-body">
+
+    <!-- ====================================================================
+         FULL PORTAL CONTAINER (SIDEBAR + TOPBAR + VIEWS)
+         ==================================================================== -->
+    <div class="portal-layout-wrapper">
+
+        <!-- ==========================================
+             SLEEK PURPLE LEFT SIDEBAR (Ref: Image 1)
+             ========================================== -->
+        <aside class="portal-sidebar">
+            <div class="sidebar-brand-box">
+                <div class="brand-graduation-cap">
+                    <svg viewBox="0 0 24 24" fill="currentColor" width="30" height="30">
+                        <path d="M12 3L1 9L12 15L21 10.09V17H23V9M5 13.18V17.18C5 19.94 8.13 22 12 22C15.87 22 19 19.94 19 17.18V13.18L12 17L5 13.18Z"/>
+                    </svg>
+                </div>
+            </div>
+
+            <nav class="sidebar-nav-menu">
+                <button type="button" class="sidebar-nav-item active nav-link-btn" data-tab="dashboard">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                            <path d="M13 3V11H21V3H13M3 13H11V3H3V13M3 21H11V15H3V21M13 21H21V13H13V21Z"/>
+                        </svg>
+                    </span>
+                    <span class="sidebar-label">Dashboard</span>
+                </button>
+
+                <button type="button" class="sidebar-nav-item nav-link-btn" data-tab="experiments">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                            <path d="M19 3H5C3.9 3 3 3.9 3 5V19C3 20.1 3.9 21 5 21H19C20.1 21 21 20.1 21 19V5C21 3.9 20.1 3 19 3M19 19H5V5H19V19M17 12H7V10H17V12M13 16H7V14H13V16M17 8H7V6H17V8Z"/>
+                        </svg>
+                    </span>
+                    <span class="sidebar-label">Courses & Labs</span>
+                </button>
+
+                <button type="button" class="sidebar-nav-item nav-link-btn" data-tab="team">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                            <path d="M16 11C17.66 11 18.99 9.66 18.99 8C18.99 6.34 17.66 5 16 5C14.34 5 13 6.34 13 8C13 9.66 14.34 11 16 11M8 11C9.66 11 10.99 9.66 10.99 8C10.99 6.34 9.66 5 8 5C6.34 5 5 6.34 5 8C5 9.66 6.34 11 8 11M8 13C5.67 13 1 14.17 1 16.5V19H15V16.5C15 14.17 10.33 13 8 13M16 13C15.71 13 15.38 13.02 15.03 13.05C16.19 13.89 17 15.02 17 16.5V19H23V16.5C23 14.17 18.33 13 16 13Z"/>
+                        </svg>
+                    </span>
+                    <span class="sidebar-label">Lab Team (2 Members)</span>
+                </button>
+
+                <button type="button" class="sidebar-nav-item nav-link-btn" data-tab="components">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                            <path d="M21 16.5C21 16.88 20.79 17.21 20.47 17.38L12.57 21.82C12.41 21.94 12.21 22 12 22C11.79 22 11.59 21.94 11.43 21.82L3.53 17.38C3.21 17.21 3 16.88 3 16.5V7.5C3 7.12 3.21 6.79 3.53 6.62L11.43 2.18C11.59 2.06 11.79 2 12 2C12.21 2 12.41 2.06 12.57 2.18L20.47 6.62C20.79 6.79 21 7.12 21 7.5V16.5M12 4.15L6.04 7.5L12 10.85L17.96 7.5L12 4.15M5 9.09V15.71L11 19.08V12.46L5 9.09M19 15.71V9.09L13 12.46V19.08L19 15.71Z"/>
+                        </svg>
+                    </span>
+                    <span class="sidebar-label">Components</span>
+                </button>
+
+                <button type="button" class="sidebar-nav-item nav-link-btn" data-tab="history">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                            <path d="M13.5 8H12V13L16.28 15.54L17 14.33L13.5 12.25V8M13 3A9 9 0 0 0 4 12H1L4.96 16.03L9 12H6A7 7 0 0 1 13 5A7 7 0 0 1 20 12A7 7 0 0 1 13 19C11.07 19 9.32 18.21 8.06 16.94L6.64 18.36C8.27 20 10.5 21 13 21A9 9 0 0 0 22 12A9 9 0 0 0 13 3Z"/>
+                        </svg>
+                    </span>
+                    <span class="sidebar-label">Lab History</span>
+                </button>
+
+                <button type="button" class="sidebar-nav-item nav-link-btn" data-tab="profile">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                            <path d="M12 12C14.21 12 16 10.21 16 8C16 5.79 14.21 4 12 4C9.79 4 8 5.79 8 8C8 10.21 9.79 12 12 12M12 14C9.33 14 4 15.34 4 18V20H20V18C20 15.34 14.67 14 12 14Z"/>
+                        </svg>
+                    </span>
+                    <span class="sidebar-label">My Profile</span>
+                </button>
+            </nav>
+
+            <div class="sidebar-bottom-action">
+                <button type="button" class="sidebar-nav-item logout-link" id="logoutBtn">
+                    <span class="sidebar-icon">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                            <path d="M16 17V14H9V10H16V7L21 12L16 17M14 2C14.55 2 15 2.45 15 3V5H13V4H5V20H13V19H15V21C15 21.55 14.55 22 14 22H4C2.9 22 2 21.1 2 20V4C2 2.9 2.9 2 4 2H14Z"/>
+                        </svg>
+                    </span>
+                    <span class="sidebar-label">Logout</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- ==========================================
+             MAIN PORTAL VIEWPORT
+             ========================================== -->
+        <div class="portal-main-area">
+
+            <!-- Topbar (Search + User Details) -->
+            <header class="portal-topbar">
+                <div class="topbar-search-wrapper">
+                    <svg class="search-svg" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="11" cy="11" r="8"></circle>
+                        <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                    </svg>
+                    <input type="text" id="topbarSearchInput" placeholder="Search subjects, experiments, manuals..." />
+                </div>
+
+                <div class="topbar-right-actions">
+                    <div class="topbar-bell-btn" title="System Updates">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                            <path d="M12 22C13.1 22 14 21.1 14 20H10C10 21.1 10.9 22 12 22M18 16V11C18 7.93 16.37 5.36 13.5 4.68V4C13.5 3.17 12.83 2.5 12 2.5C11.17 2.5 10.5 3.17 10.5 4V4.68C7.64 5.36 6 7.92 6 11V16L4 18V19H20V18L18 16Z"/>
+                        </svg>
+                        <span class="bell-active-dot"></span>
+                    </div>
+
+                    <div class="topbar-user-badge" onclick="switchTab('profile')">
+                        <div class="user-avatar-circle" id="avatarInitial">S</div>
+                        <div class="user-chip-text">
+                            <span class="chip-name" id="navUsername">Student</span>
+                            <span class="chip-year" id="navUserRole">3rd year • Robotics & Automation</span>
+                        </div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Dynamic View Sections -->
+            <main class="portal-content-scroll">
+
+                <!-- ==========================================
+                     VIEW 1: DASHBOARD OVERVIEW (Image 1 + 2 + 3)
+                     ========================================== -->
+                <section id="view-dashboard" class="view-section active">
+                    
+                    <!-- 1. Hero Purple Banner (Image 1 Style) -->
+                    <div class="dashboard-hero-banner">
+                        <div class="hero-left-info">
+                            <div class="hero-date-badge" id="heroCurrentDate">October 16, 2026</div>
+                            <h1 class="hero-welcome-heading">Welcome back, <span id="studentGreetingName">Student</span>!</h1>
+                            <p class="hero-subtext">Always stay updated in your student portal • Department of Robotics & Automation</p>
+                        </div>
+                        <div class="hero-graphic-box">
+                            <img src="images/student_banner.jpg" alt="Student AI Lab Portal" class="hero-banner-art" />
+                        </div>
+                    </div>
+
+                    <!-- 2. Main 2-Column Split: Subjects Grid + Side Tabular Column -->
+                    <div class="dashboard-split-layout">
+
+                        <!-- LEFT COLUMN: Subjects with Images & "Select these" button -->
+                        <div class="dashboard-left-content">
+                            <div class="section-title-row">
+                                <div>
+                                    <h2 class="portal-section-heading">Enrolled Lab Subjects</h2>
+                                    <p class="portal-section-sub">Choose a subject to access experiments, hardware manuals, and pre-lab assessments</p>
+                                </div>
+                                <div class="project-tag-pill">
+                                    <span>📁</span> For my project-related
+                                </div>
+                            </div>
+
+                            <!-- Course / Subject Cards Grid populated dynamically -->
+                            <div class="subjects-course-grid" id="dashboardSubjectsGrid">
+                                <div style="color: var(--text-muted); padding: 2rem; grid-column: 1/-1;">Loading enrolled subjects...</div>
+                            </div>
+                        </div>
+
+                        <!-- RIGHT COLUMN: Side Tabular Column (Team Finished Experiments & Live Updates) -->
+                        <div class="dashboard-right-tabular">
+                            <div class="tabular-column-card">
+                                <div class="tabular-header">
+                                    <div>
+                                        <h3 class="tabular-heading">Team Progress & Updates</h3>
+                                        <p class="tabular-sub" id="sideTeamNameSub">Connecting to MongoDB...</p>
+                                    </div>
+                                    <div class="tabular-switch-buttons">
+                                        <button type="button" class="tabular-switch-btn active" id="tabBtnFinished" onclick="switchTabularTab('finished')">
+                                            Team Finished (<span id="tabularFinishedCount">0</span>)
+                                        </button>
+                                        <button type="button" class="tabular-switch-btn" id="tabBtnUpdates" onclick="switchTabularTab('updates')">
+                                            Live Updates
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Tab Panel 1: Team Finished Experiments Table -->
+                                <div class="tabular-panel active" id="panelFinishedExp">
+                                    <div class="team-stat-highlight-box">
+                                        <div class="highlight-ring-badge">
+                                            <span class="highlight-num" id="metricFinishedRatio">0/10</span>
+                                            <span class="highlight-lbl">Finished</span>
+                                        </div>
+                                        <div class="highlight-info-text">
+                                            <h4 id="metricTeamGroup">Team Practical Session</h4>
+                                            <p id="metricTeamStatusDesc">Experiments finished and verified by lab faculty</p>
+                                        </div>
+                                    </div>
+
+                                    <div class="tabular-table-container">
+                                        <table class="tabular-data-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>EXP #</th>
+                                                    <th>SUBJECT / TOPIC</th>
+                                                    <th>STATUS</th>
+                                                    <th>STAFF</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="teamFinishedTableBody">
+                                                <tr><td colspan="4" class="table-empty-row">Loading team finished experiments...</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+
+                                <!-- Tab Panel 2: Live Updates Table -->
+                                <div class="tabular-panel" id="panelLiveUpdates">
+                                    <div class="tabular-table-container">
+                                        <table class="tabular-data-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>EVENT</th>
+                                                    <th>DETAILS</th>
+                                                    <th>TIME</th>
+                                                    <th>STATUS</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="liveUpdatesTableBody">
+                                                <tr><td colspan="4" class="table-empty-row">Loading live lab updates...</td></tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                    </div>
+
+                    <!-- Hidden Metric Data Holders to Preserve System Compatibility -->
+                    <div style="display: none;">
+                        <span id="valTotalExp">-</span>
+                        <span id="valExpAttempted">-</span>
+                        <span id="valExpPassed">-</span>
+                        <span id="valExpRemaining">-</span>
+                        <span id="valTeamStatus">-</span>
+                        <span id="valSessionStatus">-</span>
+                        <span id="bannerSessionTitle">-</span>
+                        <span id="bannerSessionMeta">-</span>
+                        <button id="bannerActionBtn"></button>
+                        <ul id="recentActivityList"></ul>
+                    </div>
+
+                </section>
+
+        <!-- ==========================================
+             VIEW 2: SUBJECT & EXPERIMENT SELECTION
+             ========================================== -->
+        <section id="view-experiments" class="view-section">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Which subject would you <span class="accent">like to work on today?</span></h1>
+                <p class="page-subtitle">Select a subject to view its experiments and start your AI assessment.</p>
+                </div>
+            </div>
+
+            <!-- Step 1: Select Subject -->
+            <div style="margin-bottom: 2.2rem;">
+                <h3 style="font-size: 1.1rem; font-weight: 700; margin-bottom: 1rem; color: var(--purple-light);">
+                    Step 1: Select Subject
+                </h3>
+                <div class="subjects-grid" id="subjectsContainer">
+                    <!-- Populated dynamically via student.js -->
+                </div>
+            </div>
+
+            <!-- Step 2: Select Experiment -->
+            <div>
+                <h3 class="page-title" id="selectedSubjectTitle" style="font-size: 1.3rem; margin-bottom: 1.2rem;">
+                    Step 2: Select Experiment
+                </h3>
+                <div class="experiments-list" id="experimentsContainer">
+                    <!-- Populated dynamically via student.js -->
+                </div>
+            </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 3: EXPERIMENT INTRODUCTION VIEW
+             ========================================== -->
+        <section id="view-intro" class="view-section">
+            <div class="intro-container">
+                <div class="intro-header">
+                    <button class="secondary-btn" onclick="switchTab('experiments')" style="margin-bottom: 1rem; padding: 6px 12px; font-size: 0.8rem;">
+                        ← Back to Experiments
+                    </button>
+                    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 0.5rem;">
+                        <span class="subject-code-tag" id="introSubject">Subject</span>
+                        <span class="exp-num-badge" id="introExpNum">EXP-01</span>
+                    </div>
+                    <h1 class="page-title" id="introTitle" style="font-size: 1.65rem;">Experiment Title</h1>
+                    <p class="page-subtitle" id="introDesc" style="margin-top: 0.5rem;">Description</p>
+                </div>
+
+                <div class="intro-meta-grid">
+                    <div class="intro-meta-item">
+                        <div class="meta-lbl">Laboratory</div>
+                        <div class="meta-val" id="introLab">-</div>
+                    </div>
+                    <div class="intro-meta-item">
+                        <div class="meta-lbl">Test Duration</div>
+                        <div class="meta-val" id="introDuration">-</div>
+                    </div>
+                    <div class="intro-meta-item">
+                        <div class="meta-lbl">Total Marks</div>
+                        <div class="meta-val" id="introMarks">-</div>
+                    </div>
+                    <div class="intro-meta-item">
+                        <div class="meta-lbl">Passing Criteria</div>
+                        <div class="meta-val" id="introPassMark" style="color: #10b981;">-</div>
+                    </div>
+                </div>
+
+                <!-- Objectives -->
+                <div class="intro-section">
+                    <h3 class="intro-section-title">🎯 Learning Objectives</h3>
+                    <ul class="bullet-list" id="introObjectivesList"></ul>
+                </div>
+
+                <!-- Instructions & Lab Manual -->
+                <div class="intro-section">
+                    <h3 class="intro-section-title">📖 Instructions & Official Lab Manual</h3>
+                    <p id="introInstructions" style="color: var(--text-muted); font-size: 0.9rem; line-height: 1.6; margin-bottom: 1rem;"></p>
+                    <a href="#" id="introManualBtn" target="_blank" class="secondary-btn">
+                        📄 Download Lab Manual (PDF)
+                    </a>
+                </div>
+
+                <!-- Required Components -->
+                <div class="intro-section">
+                    <h3 class="intro-section-title">📦 Required Hardware Components</h3>
+                    <ul class="bullet-list" id="introComponentsList"></ul>
+                </div>
+
+                <!-- Exam Rules & Monitoring Policy -->
+                <div class="rules-card">
+                    <div class="rules-card-title">
+                        <span>🛡️</span> AI Exam Monitoring & Assessment Rules
+                    </div>
+                    <ul class="bullet-list" style="font-size: 0.85rem; color: #fbbf24;">
+                        <li>This assessment is timed. The timer starts immediately upon confirmation.</li>
+                        <li>Do not leave or switch browser tabs. Window blur and tab visibility changes are recorded.</li>
+                        <li>First violation displays an integrity warning; repeated violations result in auto-submission.</li>
+                        <li>Copying, pasting, and shortcut keys are restricted inside the exam interface.</li>
+                        <li>Optional on-device camera monitoring checks examinee presence locally without cloud transmission.</li>
+                    </ul>
+                </div>
+
+                <div id="introStatusNotice"></div>
+
+                <div class="intro-actions">
+                    <button class="secondary-btn" onclick="switchTab('experiments')">Cancel</button>
+                    <button class="primary-btn" id="readyExamBtn" onclick="confirmStartExam()">
+                        Ready for the Exam →
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 4: AI-ASSISTED ONLINE EXAM (DISTRACTION FREE)
+             ========================================== -->
+        <section id="view-exam" class="view-section">
+            <div class="exam-layout">
+                <!-- Exam Question HUD -->
+                <div class="exam-main">
+                    <div>
+                        <div class="exam-header">
+                            <div>
+                                <span class="exp-num-badge" id="examExpTitle">EXP-01</span>
+                                <div class="question-counter" id="examQuestionNum">Question 1 of 4</div>
+                            </div>
+                            <span style="font-size: 0.82rem; color: var(--text-muted);" id="examPassMarkInfo">Pass: 3/4 marks</span>
+                        </div>
+                        <div class="progress-track">
+                            <div class="progress-bar-fill" id="examProgressFill" style="width: 25%;"></div>
+                        </div>
+
+                        <div style="margin-top: 2rem;">
+                            <h2 class="question-text" id="examQuestionText">Loading question...</h2>
+                            <div class="options-list" id="examOptionsContainer">
+                                <!-- Options rendered dynamically -->
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="exam-controls">
+                        <button class="secondary-btn" id="examPrevBtn" onclick="examPrevQuestion()">← Previous</button>
+                        <button class="primary-btn" id="examNextBtn" onclick="examNextQuestion()">Next Question →</button>
+                        <button class="primary-btn" id="examSubmitBtn" style="display: none; background: #10b981;" onclick="submitExam(false)">
+                            Submit Test ✓
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Exam Sidebar: Timer, Camera Preview & Palette -->
+                <div class="exam-sidebar">
+                    <!-- Countdown Timer -->
+                    <div class="timer-box">
+                        <div class="timer-label">Time Remaining</div>
+                        <div class="timer-display" id="examTimerDisplay">05:00</div>
+                    </div>
+
+                    <!-- Camera Monitoring Preview -->
+                    <div class="camera-card">
+                        <div class="camera-header">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                <span class="camera-status-dot"></span>
+                                <span>AI Camera Monitoring</span>
+                            </div>
+                            <span style="font-size: 0.72rem; color: var(--purple-light);" id="cameraStatusText">Active</span>
+                        </div>
+                        <div class="camera-video-wrapper" style="position: relative;">
+                            <video id="cameraVideo" class="camera-video" autoplay muted playsinline></video>
+                            <canvas id="cameraCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 2;"></canvas>
+                            <div id="cameraFallback" class="camera-fallback-msg"></div>
+                            <div class="camera-overlay">
+                                <span>🔒 On-Device AI</span>
+                                <span>100% Private</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 6px; margin-top: 8px;">
+                            <button type="button" class="secondary-btn" id="uploadSnapshotManualBtn" onclick="triggerManualSnapshotUpload()" style="flex: 1; font-size: 0.72rem; padding: 6px; border-color: #3b82f6; color: #93c5fd; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                                <span>📸</span> Snap
+                            </button>
+                            <button type="button" class="secondary-btn" id="simulateEyesBtn" onclick="simulateEyesDownWarning()" style="flex: 1.1; font-size: 0.72rem; padding: 6px; border-color: #f59e0b; color: #fcd34d; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                                <span>👁️</span> Eyes Down
+                            </button>
+                            <button type="button" class="secondary-btn" id="simulatePhoneBtn" onclick="simulatePhoneDetection()" style="flex: 1; font-size: 0.72rem; padding: 6px; border-color: #ef4444; color: #fca5a5; display: flex; align-items: center; justify-content: center; gap: 4px;">
+                                <span>📱</span> Phone
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Integrity Warnings Card -->
+                    <div class="integrity-card">
+                        <div style="font-size: 0.82rem; font-weight: 700; color: var(--text-white); margin-bottom: 0.6rem;">
+                            Integrity Status
+                        </div>
+                        <div class="integrity-item">
+                            <span class="integrity-dot" id="gazeStatusDot" style="background:#10b981;"></span>
+                            <span id="gazeStatusLabel">Eye / Gaze: <strong style="color: #10b981;">On Screen</strong></span>
+                        </div>
+                        <div class="integrity-item">
+                            <span class="integrity-dot"></span>
+                            <span>Window Focus: Monitored</span>
+                        </div>
+                        <div class="integrity-item">
+                            <span class="integrity-dot"></span>
+                            <span>Clipboard: Locked</span>
+                        </div>
+                        <div class="integrity-item">
+                            <span class="integrity-dot" id="phoneStatusDot" style="background:#10b981;"></span>
+                            <span id="phoneStatusLabel">Phone Detection: <strong style="color: #10b981;">Active</strong></span>
+                        </div>
+                        <div class="integrity-item">
+                            <span class="integrity-dot" id="snapshotStatusDot" style="background:#3b82f6;"></span>
+                            <span>Proctoring Photos: <strong id="snapshotUploadCounter" style="color: #60a5fa;">0 uploaded</strong></span>
+                        </div>
+                        <div class="integrity-item">
+                            <span class="integrity-dot"></span>
+                            <span>Violations: <strong id="examWarningCounter" style="color: var(--text-white);">0/2</strong></span>
+                        </div>
+                    </div>
+
+                    <!-- Question Palette -->
+                    <div style="background: var(--dark-card); border: 1px solid var(--border-color); border-radius: 14px; padding: 1.2rem;">
+                        <div style="font-size: 0.8rem; font-weight: 700; color: var(--text-white); margin-bottom: 0.4rem;">
+                            Question Palette
+                        </div>
+                        <div class="palette-grid" id="questionPalette"></div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 5: EXAM RESULT SUMMARY
+             ========================================== -->
+        <section id="view-result" class="view-section">
+            <div class="result-card" id="examResultCard">
+                <div class="result-icon" id="resultIcon">✓</div>
+                <h1 class="result-title" id="resultTitle">Assessment Result</h1>
+                <p class="result-subtitle" id="resultSubtitle">Your score has been graded and recorded in MongoDB.</p>
+
+                <div class="score-breakdown-box">
+                    <div class="score-cell">
+                        <div class="val" id="resScoreVal">-</div>
+                        <div class="lbl">Score Obtained</div>
+                    </div>
+                    <div class="score-cell">
+                        <div class="val" id="resPassMarkVal" style="color: #10b981;">-</div>
+                        <div class="lbl">Pass Threshold</div>
+                    </div>
+                    <div class="score-cell">
+                        <div class="val" id="resWarningsVal">-</div>
+                        <div class="lbl">Integrity Flags</div>
+                    </div>
+                </div>
+
+                <button class="primary-btn" id="resultNextActionBtn">Continue →</button>
+            </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 6: LAB TEAM REGISTRATION (EXACTLY 2 MEMBERS)
+             ========================================== -->
+        <section id="view-team" class="view-section">
+            <div class="team-container">
+                <div class="page-header" style="margin-bottom: 1.4rem;">
+                    <div>
+                        <h1 class="page-title">Lab Team <span class="accent">Registration</span></h1>
+                        <p class="page-subtitle" style="color: var(--purple-light);">
+                            ⚡ Each lab team consists of <strong>exactly 2 members</strong>. When both members pass the assessment, the team is allowed for practical work & hardware component issuance.
+                        </p>
+                    </div>
+                </div>
+
+                <form id="teamRegisterForm" onsubmit="submitTeamRegistration(event)">
+                    <!-- Team Name -->
+                    <div class="form-group">
+                        <label class="form-label">Team Name</label>
+                        <input type="text" id="teamNameInput" class="form-input" placeholder="e.g., Robotics Pair Alpha" required minlength="3">
+                    </div>
+
+                    <!-- Experiment Selection -->
+                    <div class="form-group">
+                        <label class="form-label">Assigned Experiment</label>
+                        <select id="teamExpSelect" class="form-select" onchange="onTeamExpChange()" required></select>
+                    </div>
+
+                    <!-- 2-Member Team Pair Structure -->
+                    <div class="form-group">
+                        <label class="form-label">Team Members (Strictly 2 Members)</label>
+                        <div class="team-pair-grid">
+                            <!-- Member 1: Authenticated Student -->
+                            <div class="member-card-box active">
+                                <div class="member-card-header">
+                                    <span class="member-role-tag">Member 1 (You)</span>
+                                    <span class="member-pass-badge passed" id="member1PassBadge">Passed ✓</span>
+                                </div>
+                                <div class="member-details-name" id="member1DisplayName">Loading...</div>
+                                <div class="member-details-reg" id="member1DisplayReg">Leader</div>
+                            </div>
+
+                            <!-- Member 2: Lab Partner Selection -->
+                            <div class="member-card-box">
+                                <div class="member-card-header">
+                                    <span class="member-role-tag">Member 2 (Lab Partner)</span>
+                                    <span class="member-pass-badge pending" id="member2PassBadge">Select Partner</span>
+                                </div>
+                                <select id="availableMemberSelect" class="form-select" onchange="onPartnerSelectChange()" required style="margin-top: 6px;">
+                                    <option value="">-- Choose 1 Lab Partner --</option>
+                                </select>
+                                <div class="member-details-reg" id="partnerPassHint" style="margin-top: 6px;">
+                                    Select a student from the registered class list
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Dynamic Practical Allowance Notification Banner -->
+                    <div class="team-practical-banner locked" id="teamPracticalStatusBanner">
+                        <div class="banner-status-icon" id="bannerStatusIcon">🔒</div>
+                        <div>
+                            <div class="banner-title locked" id="bannerStatusTitle">Practical Access: Assessment Verification Required</div>
+                            <div class="banner-sub" id="bannerStatusDesc">
+                                One team will pass only when <strong>both 2 members</strong> of the team pass the assessment. When the two members pass, practical lab session and hardware issuance will be allowed.
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; justify-content: flex-end; margin-top: 1.8rem; gap: 12px;">
+                        <button type="button" class="secondary-btn" onclick="switchTab('dashboard')">Cancel</button>
+                        <button type="submit" class="primary-btn" id="teamRegisterSubmitBtn">Register 2-Member Team →</button>
+                    </div>
+                </form>
+
+                <!-- Registered Team Details Box if already enrolled -->
+                <div id="activeTeamCardContainer" style="margin-top: 2.2rem; display: none;"></div>
+            </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 7: COMPONENT REQUIREMENTS VIEW
+             ========================================== -->
+        <section id="view-components" class="view-section">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title" id="compExpTitle">Component <span class="accent">Requirements</span></h1>
+                    <p class="page-subtitle">Hardware inventory specifications, safety ratings, and issue status</p>
+                </div>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span style="font-size: 0.85rem; color: var(--text-muted);">Status:</span>
+                    <span class="badge-status awaiting-team" id="compIssueStatusTag">Awaiting Staff Issue</span>
+                </div>
+            </div>
+
+            <!-- Components Grid -->
+            <div class="component-card-grid" id="componentRequirementsGrid">
+                <!-- Rendered dynamically via student.js -->
+            </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 8: MY TESTS & LAB HISTORY
+             ========================================== -->
+        <section id="view-history" class="view-section">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">My Lab <span class="accent">History</span></h1>
+                    <p class="page-subtitle">Server-recorded timestamps, scores, registered teams, components, and inspection outcomes</p>
+                </div>
+            </div>
+
+            <div class="history-list" id="historyTimelineList">
+                <!-- Rendered dynamically via student.js -->
+            </div>
+        </section>
+
+        <section id="view-tests" class="view-section">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">My <span class="accent">Assessments</span></h1>
+                    <p class="page-subtitle">Your comprehensive test attempts, scores, and exam integrity audit history</p>
+                </div>
+            </div>
+
+            <div class="history-list" id="myTestsContainer">
+                <!-- Shared history timeline view -->
+            </div>
+        </section>
+
+        <!-- ==========================================
+             VIEW 9: STUDENT PROFILE
+             ========================================== -->
+        <section id="view-profile" class="view-section">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">Student <span class="accent">Profile</span></h1>
+                    <p class="page-subtitle">Your registered institutional identity, academic credentials, and portal progress</p>
+                </div>
+            </div>
+
+            <div style="background: var(--dark-card); border: 1px solid var(--border-color); border-radius: 16px; padding: 2.2rem; max-width: 800px; margin: 0 auto;">
+                <div style="display: flex; align-items: center; gap: 18px; margin-bottom: 2rem; border-bottom: 1px solid var(--border-color); padding-bottom: 1.5rem;">
+                    <div class="user-avatar" style="width: 54px; height: 54px; font-size: 1.4rem;">S</div>
+                    <div>
+                        <h2 style="font-size: 1.4rem; color: var(--text-white);" id="profileName">-</h2>
+                        <p style="color: var(--purple-light); font-size: 0.85rem;" id="profileRegId">STU-2026-000</p>
+                    </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 1.4rem; margin-bottom: 2rem;">
+                    <div>
+                        <span class="card-label">Enrolled Department</span>
+                        <p style="color: var(--text-white); font-weight: 600; margin-top: 4px;" id="profileDept">-</p>
+                    </div>
+                    <div>
+                        <span class="card-label">Account Role</span>
+                        <p style="color: var(--text-white); font-weight: 600; margin-top: 4px;" id="profileRole">STUDENT</p>
+                    </div>
+                </div>
+
+                <h3 style="font-size: 1rem; font-weight: 700; color: var(--text-white); margin-bottom: 1rem;">
+                    Academic Experiment Summary
+                </h3>
+                <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; background: var(--dark-surface); padding: 1.2rem; border-radius: 10px; border: 1px solid var(--border-color);">
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.3rem; font-weight: 800; color: var(--text-white);" id="pAttempted">0</div>
+                        <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Attempted</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.3rem; font-weight: 800; color: #10b981;" id="pPassed">0</div>
+                        <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Passed</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.3rem; font-weight: 800; color: #ef4444;" id="pFailed">0</div>
+                        <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Failed</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.3rem; font-weight: 800; color: var(--purple-light);" id="pTeams">0</div>
+                        <div style="font-size: 0.72rem; color: var(--text-muted); text-transform: uppercase;">Teams</div>
+                    </div>
+                </div>
+            </div>
+            </main>
+        </div><!-- /.portal-main-area -->
+    </div><!-- /.portal-layout-wrapper -->
+
+    <!-- ====================================================================
+         EXAM CONFIRMATION MODAL
+         ==================================================================== -->
+    <div class="modal-backdrop" id="examConfirmModal">
+        <div class="modal-box">
+            <h2 class="modal-title">Ready to Begin Assessment?</h2>
+            <p class="modal-desc">
+                Are you ready to begin the experiment assessment? Once confirmed:
+            </p>
+            <ul class="bullet-list" style="font-size: 0.85rem; margin-bottom: 1.5rem; color: var(--text-primary);">
+                <li>The assessment timer will start immediately.</li>
+                <li>Your answers will be securely graded on the server.</li>
+                <li>Leaving the exam window or switching tabs triggers anti-cheating warnings.</li>
+                <li>Multiple integrity violations will terminate and auto-submit your test.</li>
+            </ul>
+
+            <div style="margin-bottom: 1.4rem; background: var(--dark-surface); padding: 10px 14px; border-radius: 8px; border: 1px solid var(--border-color); display: flex; align-items: center; gap: 10px;">
+                <input type="checkbox" id="modalCameraCheck" checked style="accent-color: var(--purple-primary); width: 16px; height: 16px;">
+                <label for="modalCameraCheck" style="font-size: 0.82rem; color: var(--text-white); cursor: pointer;">
+                    Enable On-Device Camera Monitoring (Private & Local)
+                </label>
+            </div>
+
+            <div class="modal-actions">
+                <button type="button" class="secondary-btn" onclick="closeConfirmModal()">Cancel</button>
+                <button type="button" class="primary-btn" onclick="startExamSession()">Start Exam Now →</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ====================================================================
+         CRITICAL PHONE DETECTION EJECTION OVERLAY
+         ==================================================================== -->
+    <div id="phoneAlertOverlay" style="display: none; position: fixed; inset: 0; background: rgba(10, 4, 18, 0.97); z-index: 99999; align-items: center; justify-content: center; backdrop-filter: blur(14px);">
+        <div style="max-width: 520px; width: 90%; background: #1a102a; border: 2px solid #ef4444; border-radius: 18px; padding: 2.2rem; text-align: center; box-shadow: 0 0 60px rgba(239, 68, 68, 0.5);">
+            <div style="font-size: 3.8rem; margin-bottom: 1rem; animation: pulse 1s infinite;">📱 🚫</div>
+            <h2 style="color: #ef4444; font-size: 1.6rem; font-weight: 800; margin-bottom: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px;">Mobile Phone Detected!</h2>
+            <div style="background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 10px; padding: 12px; margin-bottom: 1.2rem; color: #fca5a5; font-size: 0.9rem; line-height: 1.5;">
+                AI camera proctoring detected an unauthorized smartphone in your test environment.
+            </div>
+            <p style="color: #cbd5e1; font-size: 0.95rem; line-height: 1.6; margin-bottom: 1.5rem;">
+                <strong>Academic Integrity Violation:</strong> Using a mobile device during the examination is strictly prohibited. Your test session has been terminated and recorded.
+            </p>
+            <div id="phoneCountdownText" style="font-size: 1.05rem; color: #f87171; font-weight: 700; padding: 10px; background: rgba(0,0,0,0.3); border-radius: 8px;">
+                Exiting website in 3 seconds...
+            </div>
+        </div>
+    </div>
+
+    <!-- ====================================================================
+         EYES CLOSED / DOWN 3-SECOND COUNTDOWN WARNING BANNER
+         ==================================================================== -->
+    <div id="eyesWarningBanner" style="display: none; position: fixed; top: 80px; left: 50%; transform: translateX(-50%); z-index: 99999; width: 92%; max-width: 620px; background: rgba(220, 38, 38, 0.96); border: 2px solid #fecaca; border-radius: 16px; padding: 18px 24px; color: #ffffff; box-shadow: 0 12px 48px rgba(220, 38, 38, 0.6); backdrop-filter: blur(12px); animation: pulse 1s infinite;">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 16px;">
+            <div style="display: flex; align-items: center; gap: 16px;">
+                <span style="font-size: 2.6rem;">👁️ ⚠️</span>
+                <div>
+                    <h3 style="margin: 0; font-size: 1.18rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px;">EYES CLOSED / LOOKING DOWN DETECTED!</h3>
+                    <p style="margin: 5px 0 0; font-size: 0.9rem; opacity: 0.95; line-height: 1.4;">Please focus your eyes directly on the exam screen immediately.</p>
+                </div>
+            </div>
+            <div style="display: flex; flex-direction: column; align-items: center; background: rgba(0,0,0,0.35); border-radius: 12px; padding: 8px 16px; min-width: 88px;">
+                <span style="font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.85;">Suspending in</span>
+                <span id="eyesCountdownNumber" style="font-size: 2rem; font-weight: 900; line-height: 1; color: #fef08a;">3s</span>
+            </div>
+        </div>
+        <div style="height: 5px; background: rgba(255,255,255,0.25); border-radius: 3px; margin-top: 12px; overflow: hidden;">
+            <div id="eyesCountdownBar" style="height: 100%; width: 100%; background: #fef08a; transition: width 0.1s linear;"></div>
+        </div>
+    </div>
+
+    <!-- Toast Notifications Container -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- TensorFlow.js, COCO-SSD (Phone Detection) & BlazeFace (Face & Eye Geometry Tracking) -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.17.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/blazeface@0.0.7/dist/blazeface.min.js"></script>
+
+    <script src="student.js"></script>
+</body>
+</html>

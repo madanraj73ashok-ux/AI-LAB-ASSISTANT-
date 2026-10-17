@@ -1,0 +1,482 @@
+/* ===================================
+   Student Portal Login - Stylesheet
+   =================================== */
+
+/* CSS Reset & Base */
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --dark-bg: #000000;
+    --dark-card: #9999cc;
+    --purple-primary: #9686b6;
+    --purple-hover: #7342d6;
+    --purple-light: #ab88f7;
+    --text-white: #ffffff;
+    --text-muted: #8b8b9e;
+    --text-light: #d1d1e0;
+    --input-border: #2e2e38;
+    --accent-glow: rgba(133, 85, 232, 0.4);
+}
+
+html {
+    font-size: 16px;
+    scroll-behavior: smooth;
+    background: #000000;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #000000;
+    color: var(--text-white);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+    overflow-x: hidden;
+    position: relative;
+}
+
+/* ===================================
+   GLYPH STREAM CANVAS BACKGROUND (React Bits Pro)
+   =================================== */
+#glyph-stream-canvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
+    pointer-events: none;
+    display: block;
+}
+
+/* ===================================
+   CARD CONTAINER - Split Layout
+   =================================== */
+.container {
+    display: flex;
+    width: 100%;
+    max-width: 1000px;
+    min-height: 620px;
+    background: var(--dark-card);
+    border-radius: 28px;
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    box-shadow: 0 30px 85px rgba(0, 0, 0, 0.95), 0 0 50px rgba(139, 92, 246, 0.22);
+    overflow: hidden;
+    position: relative;
+    z-index: 10;
+    animation: fadeSlideUp 0.6s ease-out;
+}
+
+/* ========================
+   LEFT PANEL - Login Form
+   ======================== */
+.left-panel {
+    flex: 1;
+    background: var(--dark-card);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 3.5rem 3rem;
+    position: relative;
+    z-index: 2;
+}
+
+.login-form-wrapper {
+    width: 100%;
+    max-width: 360px;
+}
+
+/* ===================================
+   APPLE-INSPIRED GLASS ROLE SWITCHER
+   =================================== */
+.role-switcher-container {
+    width: 100%;
+    margin-bottom: 1.25rem;
+}
+
+.role-switcher-glass {
+    position: relative;
+    display: flex;
+    background: rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 14px;
+    padding: 4px;
+    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.05),
+        0 4px 20px rgba(0, 0, 0, 0.25);
+}
+
+.role-btn {
+    position: relative;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 10px 14px;
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-size: 0.92rem;
+    font-weight: 500;
+    color: var(--text-muted);
+    cursor: pointer;
+    z-index: 2;
+    transition: color 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    outline: none;
+    user-select: none;
+}
+
+.role-btn:hover {
+    color: var(--text-white);
+}
+
+.role-btn.active {
+    color: var(--text-white);
+    font-weight: 600;
+}
+
+.role-btn:focus-visible {
+    box-shadow: 0 0 0 2px var(--purple-primary);
+}
+
+.role-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+    opacity: 0.7;
+}
+
+.role-btn.active .role-icon {
+    opacity: 1;
+    transform: scale(1.08);
+    color: var(--purple-light);
+}
+
+/* Polished Active Glass Slider */
+.role-slider {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    width: calc(50% - 4px);
+    height: calc(100% - 8px);
+    background: linear-gradient(135deg, rgba(133, 85, 232, 0.35) 0%, rgba(100, 52, 204, 0.5) 100%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(171, 136, 247, 0.35);
+    border-radius: 10px;
+    box-shadow: 0 4px 16px rgba(133, 85, 232, 0.3),
+        inset 0 1px 1px rgba(255, 255, 255, 0.25);
+    transition: transform 0.32s cubic-bezier(0.25, 1, 0.5, 1);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.role-switcher-glass.staff-active .role-slider {
+    transform: translateX(100%);
+}
+
+.login-subtitle {
+    color: var(--text-muted);
+    font-size: 0.92rem;
+    font-weight: 400;
+    margin-bottom: 2rem;
+    transition: color 0.25s ease;
+}
+
+/* Form Inputs */
+.login-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.6rem;
+}
+
+.input-group {
+    position: relative;
+    padding-top: 0.5rem;
+}
+
+.input-group input {
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-bottom: 1.5px solid var(--input-border);
+    padding: 0.75rem 2.5rem 0.75rem 0;
+    font-size: 1rem;
+    font-family: 'Inter', sans-serif;
+    color: var(--text-white);
+    outline: none;
+    transition: border-color 0.3s ease;
+}
+
+.input-group input:focus {
+    border-bottom-color: var(--purple-primary);
+}
+
+.input-group label {
+    position: absolute;
+    left: 0;
+    top: 1.2rem;
+    font-size: 1rem;
+    color: var(--text-muted);
+    pointer-events: none;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.input-group input:focus~label,
+.input-group input:not(:placeholder-shown)~label {
+    top: -0.2rem;
+    font-size: 0.75rem;
+    color: var(--purple-light);
+}
+
+.input-line {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 0;
+    height: 2px;
+    background: var(--purple-primary);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateX(-50%);
+}
+
+.input-group input:focus~.input-line {
+    width: 100%;
+}
+
+/* Toggle Password Button */
+.toggle-password {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-20%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    color: var(--text-muted);
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.3s ease;
+}
+
+.toggle-password:hover {
+    color: var(--text-white);
+}
+
+.eye-icon {
+    width: 20px;
+    height: 20px;
+}
+
+/* Forgot Password */
+.forgot-password {
+    align-self: flex-start;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    text-decoration: none;
+    transition: color 0.3s ease;
+    margin-top: -0.4rem;
+}
+
+.forgot-password:hover {
+    color: var(--purple-light);
+}
+
+/* Login Button */
+.login-btn {
+    width: 100%;
+    padding: 0.95rem;
+    border: none;
+    border-radius: 50px;
+    font-size: 1rem;
+    font-weight: 600;
+    font-family: 'Inter', sans-serif;
+    cursor: pointer;
+    background: var(--purple-primary);
+    color: white;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 4px 18px var(--accent-glow);
+    margin-top: 0.5rem;
+}
+
+.login-btn:hover {
+    background: var(--purple-hover);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px rgba(133, 85, 232, 0.55);
+}
+
+.login-btn:active {
+    transform: translateY(0);
+}
+
+.login-btn:disabled {
+    opacity: 0.7;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.btn-loader {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-loader svg {
+    animation: spin 1s linear infinite;
+}
+
+/* Sign Up Section */
+.signup-section {
+    margin-top: 2.8rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    font-size: 0.9rem;
+    color: var(--text-muted);
+}
+
+.signup-btn {
+    display: inline-block;
+    padding: 0.45rem 1.25rem;
+    border: 1px solid #33333d;
+    background: #202026;
+    border-radius: 8px;
+    color: var(--text-white);
+    text-decoration: none;
+    font-size: 0.85rem;
+    font-weight: 600;
+    transition: all 0.25s ease;
+}
+
+.signup-btn:hover {
+    background: var(--purple-primary);
+    border-color: var(--purple-primary);
+    box-shadow: 0 0 15px var(--accent-glow);
+}
+
+/* ===================================
+   RIGHT PANEL - Banner Image
+   =================================== */
+.right-panel {
+    flex: 1.15;
+    background: #8555e8;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+}
+
+.banner-wrapper {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.banner-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+    display: block;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+/* ===================================
+   KEYFRAMES
+   =================================== */
+@keyframes fadeSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ===================================
+   RESPONSIVE DESIGN
+   =================================== */
+@media (max-width: 900px) {
+    body {
+        padding: 1.2rem;
+    }
+
+    .container {
+        flex-direction: column;
+        max-width: 480px;
+        min-height: auto;
+    }
+
+    .left-panel {
+        padding: 2.5rem 1.75rem;
+        order: 2;
+    }
+
+    .right-panel {
+        min-height: 380px;
+        order: 1;
+    }
+
+    .banner-image {
+        max-height: 380px;
+    }
+
+    .login-title {
+        font-size: 2.1rem;
+    }
+}
+
+@media (max-width: 480px) {
+    body {
+        padding: 0.5rem;
+    }
+
+    .container {
+        border-radius: 20px;
+    }
+
+    .left-panel {
+        padding: 2rem 1.25rem;
+    }
+
+    .right-panel {
+        min-height: 300px;
+    }
+
+    .banner-image {
+        max-height: 300px;
+    }
+
+    .login-title {
+        font-size: 1.8rem;
+    }
+}

@@ -1,0 +1,3 @@
+# Docling Document Parsing & Extraction
+# Reference: https://github.com/daveebbelaar/ai-cookbook/tree/main/knowledge/docling
+docling>=2.0.0
