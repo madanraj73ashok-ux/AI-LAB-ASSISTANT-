@@ -21,10 +21,8 @@ pnpm-debug.log*
 lerna-debug.log*
 
 # Uploads and temporary user assets
-backend/uploads/manuals/*
-!backend/uploads/manuals/.gitkeep
-backend/uploads/proctoring/*
-!backend/uploads/proctoring/.gitkeep
+backend/uploads/
+uploads/
 
 # OS and Editor metadata
 .DS_Store

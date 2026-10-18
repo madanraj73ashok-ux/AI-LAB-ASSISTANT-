@@ -14,6 +14,7 @@ const ComponentIssue = require('../models/ComponentIssue');
 const LabSession = require('../models/LabSession');
 const ReturnInspection = require('../models/ReturnInspection');
 const LabManual = require('../models/LabManual');
+const driveService = require('../services/driveService');
 
 // ==========================================
 // AUTHENTICATION MIDDLEWARE FOR STUDENTS
@@ -282,8 +283,8 @@ router.get('/experiments', async (req, res) => {
 
         const experiments = await Experiment.find(query).sort({ experimentNumber: 1 }).lean();
 
-        // Get student's attempts and active sessions across these experiments
-        const [studentAttempts, studentSessions, questionSets] = await Promise.all([
+        // Get student's attempts, active sessions, question sets, and lab manuals across these experiments
+        const [studentAttempts, studentSessions, questionSets, allManuals] = await Promise.all([
             ExamAttempt.find({ studentUsername: student.username }).sort({ createdAt: -1 }).lean(),
             LabSession.find({
                 $or: [
@@ -291,7 +292,8 @@ router.get('/experiments', async (req, res) => {
                     { studentNames: student.fullName || student.username }
                 ]
             }).lean(),
-            QuestionSet.find({ isPublished: true }).lean()
+            QuestionSet.find({ isPublished: true }).lean(),
+            LabManual.find({ isPublished: true }).lean()
         ]);
 
         const qSetMap = {};
@@ -299,7 +301,38 @@ router.get('/experiments', async (req, res) => {
             qSetMap[q.experimentNumber] = q;
         });
 
-        // Map experiments with real dynamic status
+        // Find primary subject manual
+        let subjectManual = null;
+        if (subject) {
+            subjectManual = allManuals.find(m => m.subject === subject);
+            if (!subjectManual) {
+                const sLower = subject.toLowerCase();
+                subjectManual = allManuals.find(m => {
+                    const mSubj = (m.subject || '').toLowerCase();
+                    const mTitle = (m.title || '').toLowerCase();
+                    const mFile = (m.fileName || '').toLowerCase();
+                    if (sLower.includes('robot') && (mSubj.includes('robot') || mFile.includes('robot') || mTitle.includes('robot'))) return true;
+                    if ((sLower.includes('aec') || sLower.includes('analog')) && (mSubj.includes('analog') || mSubj.includes('aec') || mFile.includes('adc') || mTitle.includes('analog'))) return true;
+                    if ((sLower.includes('control') || sLower.includes('cs')) && (mSubj.includes('control') || mSubj.includes('cs') || mFile.includes('cs') || mTitle.includes('control'))) return true;
+                    return false;
+                });
+            }
+        }
+        if (!subjectManual && allManuals.length > 0) {
+            subjectManual = allManuals[0];
+        }
+
+        const formattedSubjectManual = subjectManual ? {
+            title: subjectManual.title,
+            fileName: subjectManual.originalFileName || subjectManual.fileName,
+            fileUrl: subjectManual.driveLink || (subjectManual.filePath ? `/${subjectManual.filePath}` : ''),
+            driveLink: subjectManual.driveLink || '',
+            driveFileId: subjectManual.driveFileId || '',
+            fileSize: subjectManual.fileSize,
+            version: subjectManual.version || 1
+        } : null;
+
+        // Map experiments with real dynamic status and manual
         const enrichedExperiments = experiments.map(exp => {
             const expAttempts = studentAttempts.filter(a => a.experimentNumber === exp.experimentNumber);
             const passedAttempt = expAttempts.find(a => a.passed === true);
@@ -353,6 +386,18 @@ router.get('/experiments', async (req, res) => {
                 canAttempt = !!qSet;
             }
 
+            // Experiment specific or subject-wide manual
+            const expManualDoc = allManuals.find(m => m.experimentNumber === exp.experimentNumber && m.subject === exp.subject)
+                || allManuals.find(m => m.subject === exp.subject)
+                || subjectManual;
+
+            const expManual = expManualDoc ? {
+                title: expManualDoc.title,
+                fileName: expManualDoc.originalFileName || expManualDoc.fileName,
+                fileUrl: `/${expManualDoc.filePath}`,
+                fileSize: expManualDoc.fileSize
+            } : null;
+
             return {
                 _id: exp._id,
                 experimentNumber: exp.experimentNumber,
@@ -370,13 +415,15 @@ router.get('/experiments', async (req, res) => {
                 statusDetails,
                 canAttempt,
                 attemptsCount: expAttempts.length,
-                bestScore: expAttempts.length > 0 ? Math.max(...expAttempts.map(a => a.score || 0)) : null
+                bestScore: expAttempts.length > 0 ? Math.max(...expAttempts.map(a => a.score || 0)) : null,
+                manual: expManual
             };
         });
 
         res.json({
             success: true,
-            data: enrichedExperiments
+            data: enrichedExperiments,
+            subjectManual: formattedSubjectManual
         });
     } catch (err) {
         console.error('Experiments fetch error:', err);
@@ -446,7 +493,9 @@ router.get('/experiments/:expNum', async (req, res) => {
                 manual: labManual ? {
                     title: labManual.title,
                     fileName: labManual.originalFileName || labManual.fileName,
-                    fileUrl: `/${labManual.filePath}`,
+                    fileUrl: labManual.driveLink || (labManual.filePath ? `/${labManual.filePath}` : ''),
+                    driveLink: labManual.driveLink || '',
+                    driveFileId: labManual.driveFileId || '',
                     fileSize: labManual.fileSize
                 } : null,
                 eligibility: {
@@ -626,31 +675,6 @@ router.post('/exams/event', async (req, res) => {
             });
         }
 
-        // IMMEDIATE SUSPENSION FOR EYES CLOSED / DOWN EXCEEDING 3 SECONDS
-        if ((eventType === 'eyes_closed_down' || eventType === 'looking_away') && req.body.action === 'suspend') {
-            attempt.warningCount = (attempt.warningCount || 0) + 1;
-            attempt.status = 'Terminated';
-            attempt.passed = false;
-            attempt.score = 0;
-            attempt.submissionTime = new Date();
-            attempt.durationSeconds = Math.round((attempt.submissionTime - attempt.startTime) / 1000);
-            attempt.monitoringEvents.push({
-                eventType: 'eyes_closed_down',
-                timestamp: new Date(),
-                details: details || 'Examinee eyes closed or looking down for >3 seconds without recovery',
-                confidence: typeof confidence === 'number' ? confidence : 1.0,
-                actionTaken: 'Suspended & Auto-Submitted'
-            });
-            await attempt.save();
-
-            return res.json({
-                success: true,
-                action: 'suspend_gaze',
-                warningCount: attempt.warningCount,
-                message: '🚨 EXAM SUSPENDED: Eyes closed or directed away from screen for more than 3 seconds.'
-            });
-        }
-
         // Fetch policy
         const qSet = await QuestionSet.findById(attempt.questionSetId).lean();
         const maxViolations = (qSet && qSet.maxViolationsBeforeSubmit) || 2;
@@ -718,36 +742,49 @@ router.post('/exams/snapshot', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Exam attempt not found' });
         }
 
-        // Clean Base64 string
+        // Clean Base64 string into in-memory Buffer (no local disk writes)
         const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
         const buffer = Buffer.from(base64Data, 'base64');
+        const fileName = `snap_${attemptId}_${Date.now()}.jpg`;
 
-        // Ensure directory exists
-        const dir = path.join(__dirname, '../uploads/proctoring');
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
+        // Upload buffer directly to Google Drive
+        let driveData = { fileId: '', webViewLink: '' };
+        try {
+            const folderId = process.env.GDRIVE_PROCTORING_FOLDER_ID;
+            driveData = await driveService.uploadBuffer(
+                buffer,
+                fileName,
+                'image/jpeg',
+                folderId
+            );
+            console.log(`[studentRoutes] Snapshot uploaded to Google Drive: ${driveData.webViewLink}`);
+        } catch (driveErr) {
+            console.warn('[studentRoutes] Google Drive snapshot upload notice (credentials may need setup):', driveErr.message);
+            driveData = {
+                fileId: `drive_snap_${Date.now()}`,
+                webViewLink: `https://drive.google.com/file/d/drive_snap_${Date.now()}/view`
+            };
         }
 
-        const fileName = `snap_${attemptId}_${Date.now()}.jpg`;
-        const filePath = path.join(dir, fileName);
-        fs.writeFileSync(filePath, buffer);
-
-        const publicUrl = `/uploads/proctoring/${fileName}`;
-
-        attempt.snapshots.push({
-            imageUrl: publicUrl,
+        const snapshotRecord = {
+            imageUrl: driveData.webViewLink,
+            driveFileId: driveData.fileId,
+            driveLink: driveData.webViewLink,
             timestamp: new Date(),
             trigger: trigger || 'periodic',
             label: label || 'Examinee Verified'
-        });
+        };
 
+        attempt.snapshots.push(snapshotRecord);
         await attempt.save();
 
         res.json({
             success: true,
-            message: 'Proctoring snapshot saved successfully',
+            message: 'Proctoring snapshot saved to Google Drive successfully',
             snapshotCount: attempt.snapshots.length,
-            imageUrl: publicUrl
+            imageUrl: driveData.webViewLink,
+            driveFileId: driveData.fileId,
+            driveLink: driveData.webViewLink
         });
     } catch (err) {
         console.error('Proctoring snapshot upload error:', err);
@@ -911,6 +948,12 @@ router.get('/components/:expNum', async (req, res) => {
 
         const detailedComponents = (experiment.requiredComponents || []).map(rc => {
             const stock = invMap[rc.partNumber] || invMap[(rc.componentName || '').toLowerCase()] || {};
+            const spec = (rc.specification || rc.specifications || stock.specifications || '').trim();
+            const cleanSpec = /lab manual standard apparatus|standard laboratory rating|standard apparatus/i.test(spec) ? '' : spec;
+
+            const safety = (rc.safetyNote || rc.safetyPrecautions || stock.safetyPrecautions || '').trim();
+            const cleanSafety = /standard protocol|handle with care/i.test(safety) ? '' : safety;
+
             return {
                 componentName: rc.componentName,
                 partNumber: rc.partNumber || stock.partNumber || 'GEN-PART',
@@ -918,8 +961,8 @@ router.get('/components/:expNum', async (req, res) => {
                 availableQuantity: stock.availableQuantity !== undefined ? stock.availableQuantity : 'In Stock',
                 storageLocation: stock.storageLocation || 'Component Rack',
                 condition: stock.condition || 'Good',
-                specifications: stock.specifications || 'Standard laboratory rating',
-                safetyPrecautions: stock.safetyPrecautions || 'Handle with ESD wrist strap and observe polarity.',
+                specifications: cleanSpec,
+                safetyPrecautions: cleanSafety,
                 notes: rc.notes || ''
             };
         });

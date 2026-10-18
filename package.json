@@ -5,20 +5,24 @@
   "main": "script.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "node --watch --watch-path=backend --watch-path=frontend server.js",
+    "dev": "node --watch --watch-path=backend/routes --watch-path=backend/models --watch-path=backend/services --watch-path=backend/server.js --watch-path=backend/db.js --watch-path=frontend server.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@google/genai": "^2.30.0",
     "@radix-ui/react-label": "^2.1.17",
     "@radix-ui/react-slot": "^1.5.0",
     "bcryptjs": "^3.0.3",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
+    "dotenv": "^18.0.8",
     "express": "^5.3.0",
+    "googleapis": "^186.0.0",
     "lucide-react": "^1.58.0",
     "mongodb": "^7.7.0",
     "mongoose": "^9.11.2",
@@ -31,6 +35,8 @@
   "devDependencies": {
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "clean-css": "^5.3.3",
+    "terser": "^5.51.2",
     "typescript": "^7.0.2"
   }
 }

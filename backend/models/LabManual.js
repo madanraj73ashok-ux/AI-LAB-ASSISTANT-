@@ -35,7 +35,16 @@ const labManualSchema = new mongoose.Schema({
     },
     filePath: {
         type: String,
-        required: true
+        default: ''
+    },
+    driveFileId: {
+        type: String,
+        default: '',
+        index: true
+    },
+    driveLink: {
+        type: String,
+        default: ''
     },
     isPublished: {
         type: Boolean,
@@ -48,6 +57,22 @@ const labManualSchema = new mongoose.Schema({
     version: {
         type: Number,
         default: 1
+    },
+    targetYear: {
+        type: String,
+        default: 'All'
+    },
+    targetSection: {
+        type: String,
+        default: 'All'
+    },
+    targetDepartment: {
+        type: String,
+        default: 'ECE'
+    },
+    assignedStudentsCount: {
+        type: Number,
+        default: 0
     }
 }, { timestamps: true });
 

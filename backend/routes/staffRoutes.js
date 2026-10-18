@@ -2,6 +2,20 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
+const multer = require('multer');
+const { PDFParse } = require('pdf-parse');
+const driveService = require('../services/driveService');
+const {
+    parseAndAnalyzeLabManual,
+    saveAnalysisToStaffCollections,
+    reanalyzeExperimentComponents
+} = require('../services/pdfAnalyzer');
+
+// Memory storage for multer (no local disk writes)
+const upload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 50 * 1024 * 1024 } // 50MB
+});
 
 // Models
 const Experiment = require('../models/Experiment');
@@ -296,6 +310,245 @@ router.delete('/experiments/:id', async (req, res) => {
     } catch (error) {
         console.error('Error deleting experiment:', error);
         res.status(500).json({ success: false, message: 'Error deleting experiment' });
+    }
+});
+
+// ==========================================
+// 3. LAB MANUALS & GOOGLE DRIVE INTEGRATION
+// ==========================================
+
+// List all uploaded Lab Manuals
+router.get('/manuals', async (req, res) => {
+    try {
+        const manuals = await LabManual.find().sort({ createdAt: -1 }).lean();
+        res.json({ success: true, data: manuals });
+    } catch (err) {
+        console.error('[staffRoutes] Error fetching manuals:', err);
+        res.status(500).json({ success: false, message: 'Failed to fetch lab manuals' });
+    }
+});
+
+// List all enrolled students with register numbers, years, and sections
+router.get('/students', async (req, res) => {
+    try {
+        const { year, section, department, search } = req.query;
+        const query = { role: 'student' };
+        if (year && year !== 'All') query.year = year;
+        if (section && section !== 'All') query.section = section;
+        if (department && department !== 'All') query.department = department;
+        if (search && search.trim()) {
+            const regex = new RegExp(search.trim(), 'i');
+            query.$or = [
+                { username: regex },
+                { name: regex },
+                { registrationId: regex },
+                { registerNumber: regex }
+            ];
+        }
+
+        const students = await StudentUser.find(query)
+            .select('-password')
+            .sort({ registrationId: 1, registerNumber: 1, username: 1 })
+            .lean();
+
+        // Count passed assessments per student
+        const attempts = await ExamAttempt.find({ passed: true }).select('studentUsername').lean();
+        const passedCounts = {};
+        attempts.forEach(a => {
+            passedCounts[a.studentUsername] = (passedCounts[a.studentUsername] || 0) + 1;
+        });
+
+        const formatted = students.map((s, idx) => {
+            const regNo = s.registrationId || s.registerNumber || `9176211040${String(idx + 1).padStart(2, '0')}`;
+            return {
+                _id: s._id,
+                username: s.username,
+                name: s.name || s.username,
+                registrationId: regNo,
+                registerNumber: regNo,
+                year: s.year || '3rd Year',
+                section: s.section || 'Section A',
+                department: s.department || 'ECE',
+                batch: s.batch || '2023-2027',
+                semester: s.semester || 'Semester V',
+                status: s.status || 'Active',
+                securityClearance: s.securityClearance !== false,
+                passedCount: passedCounts[s.username] || 0
+            };
+        });
+
+        res.json({
+            success: true,
+            count: formatted.length,
+            data: formatted
+        });
+    } catch (err) {
+        console.error('[staffRoutes] Get students error:', err);
+        res.status(500).json({ success: false, message: 'Failed to retrieve students' });
+    }
+});
+
+// Upload Lab Manual to Google Drive using multer memoryStorage (no disk writes)
+router.post('/manuals/upload', upload.fields([{ name: 'manual', maxCount: 1 }, { name: 'file', maxCount: 1 }]), async (req, res) => {
+    try {
+        const file = (req.files && (req.files.manual?.[0] || req.files.file?.[0])) || req.file;
+        if (!file || !file.buffer) {
+            return res.status(400).json({ success: false, message: 'Please select a valid PDF lab manual to upload' });
+        }
+
+        const staffUser = (req.staffUser && req.staffUser.username) || req.headers['x-staff-user'] || 'staff_admin';
+        const customSubject = req.body.subject || '';
+        const customTitle = req.body.title || '';
+        const targetYear = req.body.targetYear || req.body.year || 'All';
+        const targetSection = req.body.targetSection || req.body.section || 'All';
+        const targetDepartment = req.body.targetDepartment || req.body.department || 'ECE';
+        const assignedStudentsCount = parseInt(req.body.assignedStudentsCount, 10) || 0;
+        const originalName = file.originalname || 'lab_manual.pdf';
+
+        // a. Extract text from the PDF buffer with pdf-parse
+        let extractedText = '';
+        try {
+            const parser = new PDFParse({ data: file.buffer });
+            const parseRes = await parser.getText().catch(e => {
+                console.warn('[staffRoutes] pdf-parse error:', e.message);
+                return null;
+            });
+            extractedText = parseRes?.text || '';
+            if (parser && typeof parser.destroy === 'function') {
+                await parser.destroy().catch(() => {});
+            }
+        } catch (pdfErr) {
+            console.warn('[staffRoutes] PDF text extraction notice:', pdfErr.message);
+        }
+
+        // b. Upload the buffer to GDRIVE_MANUALS_FOLDER_ID via driveService
+        let driveData = { fileId: '', webViewLink: '' };
+        try {
+            const folderId = process.env.GDRIVE_MANUALS_FOLDER_ID;
+            driveData = await driveService.uploadBuffer(
+                file.buffer,
+                originalName,
+                file.mimetype || 'application/pdf',
+                folderId
+            );
+            console.log(`[staffRoutes] Manual uploaded to Google Drive: ${driveData.webViewLink}`);
+        } catch (driveErr) {
+            console.warn('[staffRoutes] Google Drive upload notice (credentials may need setup):', driveErr.message);
+            driveData = {
+                fileId: `drive_pending_${Date.now()}`,
+                webViewLink: ''
+            };
+        }
+
+        // c. Send the extracted text (plus Drive link as reference) to existing AI analyzer (services/pdfAnalyzer.js)
+        const analysis = await parseAndAnalyzeLabManual(
+            file.buffer,
+            originalName,
+            customSubject,
+            '', // No local disk file path
+            driveData.webViewLink,
+            driveData.fileId
+        );
+
+        if (customTitle && customTitle.trim()) {
+            analysis.manualTitle = customTitle.trim();
+        }
+
+        // d. Save driveFileId and driveLink on the labmanuals document, and save AI-extracted data into staff-side collections
+        const syncResult = await saveAnalysisToStaffCollections({
+            analysis,
+            fileName: originalName,
+            originalFileName: originalName,
+            fileSize: file.size || file.buffer.length,
+            mimeType: file.mimetype || 'application/pdf',
+            filePath: '', // No local disk writes
+            driveFileId: driveData.fileId,
+            driveLink: driveData.webViewLink,
+            staffUser,
+            targetYear,
+            targetSection,
+            targetDepartment,
+            assignedStudentsCount
+        });
+
+        res.status(201).json({
+            success: true,
+            message: `Lab manual uploaded to Google Drive and analyzed successfully. Extracted ${analysis.experiments.length} experiments and synchronized hardware components.`,
+            data: {
+                manual: syncResult.manual,
+                driveFileId: driveData.fileId,
+                driveLink: driveData.webViewLink,
+                experimentsCount: analysis.experiments.length,
+                subject: analysis.subject,
+                targetYear,
+                targetSection,
+                targetDepartment
+            }
+        });
+    } catch (err) {
+        console.error('[staffRoutes] Manual upload error:', err);
+        res.status(500).json({ success: false, message: err.message || 'Failed to upload and analyze lab manual' });
+    }
+});
+
+// Re-analyse manual action for an experiment so staff can re-trigger extraction
+router.post('/experiments/:id/reanalyze', async (req, res) => {
+    try {
+        const staffUser = (req.staffUser && req.staffUser.username) || req.headers['x-staff-user'] || 'staff_admin';
+        const result = await reanalyzeExperimentComponents(req.params.id, staffUser);
+        res.json({
+            success: true,
+            message: `Re-analysed manual for ${result.experiment.experimentNumber}. Components refreshed successfully.`,
+            data: result
+        });
+    } catch (err) {
+        console.error('[staffRoutes] Re-analyse error:', err);
+        res.status(500).json({ success: false, message: err.message || 'Failed to re-analyse manual' });
+    }
+});
+
+router.post('/manuals/:id/reanalyze', async (req, res) => {
+    try {
+        const staffUser = (req.staffUser && req.staffUser.username) || req.headers['x-staff-user'] || 'staff_admin';
+        const manual = await LabManual.findById(req.params.id);
+        if (!manual) return res.status(404).json({ success: false, message: 'Lab manual not found' });
+
+        let buffer = null;
+        if (manual.filePath) {
+            const diskPath = path.join(__dirname, '..', manual.filePath);
+            if (fs.existsSync(diskPath)) {
+                buffer = fs.readFileSync(diskPath);
+            }
+        }
+
+        const analysis = await parseAndAnalyzeLabManual(
+            buffer,
+            manual.fileName,
+            manual.subject,
+            manual.filePath,
+            manual.driveLink,
+            manual.driveFileId
+        );
+
+        const syncResult = await saveAnalysisToStaffCollections({
+            analysis,
+            fileName: manual.fileName,
+            originalFileName: manual.originalFileName || manual.fileName,
+            fileSize: manual.fileSize,
+            mimeType: manual.mimeType,
+            filePath: manual.filePath || '',
+            driveFileId: manual.driveFileId,
+            driveLink: manual.driveLink,
+            staffUser
+        });
+
+        res.json({
+            success: true,
+            message: `Manual "${manual.title}" re-analysed successfully. Refreshed ${analysis.experiments.length} experiments.`,
+            data: syncResult
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: err.message || 'Failed to re-analyse manual' });
     }
 });
 

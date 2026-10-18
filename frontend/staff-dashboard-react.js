@@ -141,6 +141,21 @@ function HodDashboardApp() {
         ]
     });
 
+    // Upload or Add Files Modal State (Matching Beta Screenshot + Enrolled Students Roster)
+    const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+    const [uploadFile, setUploadFile] = useState(null);
+    const [uploadSubject, setUploadSubject] = useState('Electronic Circuits Lab');
+    const [uploadTitle, setUploadTitle] = useState('');
+    const [uploadDepartment, setUploadDepartment] = useState('ECE');
+    const [uploadYear, setUploadYear] = useState('All');
+    const [uploadSection, setUploadSection] = useState('All');
+    const [studentSearch, setStudentSearch] = useState('');
+    const [allStudents, setAllStudents] = useState([]);
+    const [studentsLoading, setStudentsLoading] = useState(false);
+    const [isDragging, setIsDragging] = useState(false);
+    const [uploadProgress, setUploadProgress] = useState(null);
+    const fileInputRef = useRef(null);
+
     const showToast = (message, type = 'success') => {
         setToast({ message, type });
         setTimeout(() => setToast(null), 4000);
@@ -205,6 +220,10 @@ function HodDashboardApp() {
                 const [sJson, eJson] = await Promise.all([sRes.json(), eRes.json()]);
                 if (sJson.success) setCurriculumSubjects(sJson.data || []);
                 if (eJson.success) setExperiments(eJson.data || []);
+            } else if (tab === 'students') {
+                const res = await fetch(`${API_BASE}/students`, { headers: getAuthHeaders() });
+                const json = await res.json();
+                if (json.success) setAllStudents(json.data || []);
             }
         } catch (e) {
             console.error('Tab data load error:', e);
@@ -214,6 +233,145 @@ function HodDashboardApp() {
     useEffect(() => {
         fetchData();
     }, []);
+
+    // -------------------------------------------------------------
+    // UPLOAD OR ADD FILES MODAL HANDLERS & STUDENT FILTERING
+    // -------------------------------------------------------------
+    const openUploadModal = async () => {
+        setIsUploadModalOpen(true);
+        setUploadFile(null);
+        setUploadProgress(null);
+        setStudentSearch('');
+        try {
+            setStudentsLoading(true);
+            const res = await fetch(`${API_BASE}/students`, { headers: getAuthHeaders() });
+            const json = await res.json();
+            if (json.success && json.data) {
+                setAllStudents(json.data);
+            }
+        } catch (e) {
+            console.error('Error fetching students for upload modal:', e);
+        } finally {
+            setStudentsLoading(false);
+        }
+    };
+
+    const filteredUploadStudents = useMemo(() => {
+        return allStudents.filter(s => {
+            const matchesYear = uploadYear === 'All' || s.year === uploadYear;
+            const matchesSection = uploadSection === 'All' || s.section === uploadSection;
+            const matchesDept = uploadDepartment === 'All' || s.department === uploadDepartment;
+            const matchesSearch = !studentSearch.trim() || 
+                (s.name && s.name.toLowerCase().includes(studentSearch.toLowerCase())) ||
+                (s.username && s.username.toLowerCase().includes(studentSearch.toLowerCase())) ||
+                (s.registerNumber && s.registerNumber.toLowerCase().includes(studentSearch.toLowerCase())) ||
+                (s.registrationId && s.registrationId.toLowerCase().includes(studentSearch.toLowerCase()));
+            return matchesYear && matchesSection && matchesDept && matchesSearch;
+        });
+    }, [allStudents, uploadYear, uploadSection, uploadDepartment, studentSearch]);
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(true);
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+    };
+
+    const handleDrop = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            const f = e.dataTransfer.files[0];
+            setUploadFile(f);
+            if (!uploadTitle) {
+                setUploadTitle(f.name.replace(/\.[^/.]+$/, ''));
+            }
+        }
+    };
+
+    const handleUploadModalSubmit = async (e) => {
+        if (e) e.preventDefault();
+        if (!uploadFile) {
+            showToast('Please select a file or PDF lab manual to upload', 'error');
+            return;
+        }
+
+        try {
+            setIsSaving(true);
+            setUploadProgress('uploading');
+            showToast(`Uploading "${uploadFile.name}" directly to Google Drive...`, 'info');
+
+            const formData = new FormData();
+            formData.append('manual', uploadFile);
+            formData.append('subject', uploadSubject);
+            formData.append('title', uploadTitle || uploadFile.name.replace(/\.[^/.]+$/, ''));
+            formData.append('targetYear', uploadYear);
+            formData.append('targetSection', uploadSection);
+            formData.append('targetDepartment', uploadDepartment);
+            formData.append('assignedStudentsCount', filteredUploadStudents.length);
+
+            const headers = getAuthHeaders();
+            delete headers['Content-Type'];
+
+            const res = await fetch(`${API_BASE}/manuals/upload`, {
+                method: 'POST',
+                headers,
+                body: formData
+            });
+
+            const json = await res.json();
+            if (json.success) {
+                setUploadProgress('done');
+                showToast(`✓ Uploaded to Google Drive & auto-extracted ${json.data?.experimentsCount || 0} experiments for ${filteredUploadStudents.length} students!`, 'success');
+                setIsUploadModalOpen(false);
+                setUploadFile(null);
+                setUploadProgress(null);
+                await loadTabData('experiments');
+            } else {
+                setUploadProgress(null);
+                showToast(json.message || 'Upload failed', 'error');
+            }
+        } catch (err) {
+            setUploadProgress(null);
+            showToast(err.message || 'Upload failed', 'error');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    // -------------------------------------------------------------
+    // LAB MANUAL & EXPERIMENT REANALYSIS ACTIONS
+    // -------------------------------------------------------------
+    const handleReanalyzeExperiment = async (expId, expNum) => {
+        try {
+            showToast(`Re-analysing manual for ${expNum}...`, 'info');
+            const res = await fetch(`${API_BASE}/experiments/${expId}/reanalyze`, {
+                method: 'POST',
+                headers: getAuthHeaders()
+            });
+            const json = await res.json();
+            if (json.success) {
+                showToast(`✓ Re-analysed ${expNum}: refreshed ${json.data?.components?.length || 0} hardware components!`, 'success');
+                await loadTabData('experiments');
+            } else {
+                showToast(json.message || 'Failed to re-analyse manual', 'error');
+            }
+        } catch (err) {
+            showToast(err.message || 'Error triggering manual reanalysis', 'error');
+        }
+    };
+
+    const handleUploadManualToDrive = async (file) => {
+        if (!file) return;
+        setUploadFile(file);
+        openUploadModal();
+    };
 
     // -------------------------------------------------------------
     // FACULTY ACTIONS
@@ -779,6 +937,22 @@ function HodDashboardApp() {
                         </div>
                         <span>Curriculum</span>
                     </button>
+
+                    {/* 8. Enrolled Students */}
+                    <button
+                        className={`nav-pill-btn ${activeTab === 'students' ? 'active' : ''}`}
+                        onClick={() => loadTabData('students')}
+                        title="Enrolled Students Roster with Register Numbers"
+                    >
+                        <div className="nav-circle-icon">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
+                                <circle cx="9" cy="7" r="4" />
+                                <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
+                            </svg>
+                        </div>
+                        <span>Students</span>
+                    </button>
                 </nav>
 
                 {/* HOD Profile Bottom Card */}
@@ -827,6 +1001,16 @@ function HodDashboardApp() {
 
                     {/* Top Right Action Controls */}
                     <div className="topbar-actions">
+                        <button
+                            className="upload-choose-btn"
+                            style={{ background: 'linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%)', border: 'none', padding: '7px 16px', fontSize: '0.84rem' }}
+                            onClick={openUploadModal}
+                            title="Upload or add files (PDF Lab Manuals to Google Drive)"
+                        >
+                            <span>📤 Upload or add files</span>
+                            <span className="upload-modal-badge" style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', padding: '1px 6px', fontSize: '0.65rem' }}>Beta</span>
+                        </button>
+
                         <button
                             className="circular-action-btn"
                             title="Department Settings (Admin / HOD)"
@@ -1566,10 +1750,21 @@ function HodDashboardApp() {
                 {/* ========================================================= */}
                 {activeTab === 'experiments' && (
                     <div className="section-card-podx">
-                        <div className="section-header-podx">
+                        <div className="section-header-podx" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
                             <div>
                                 <h3>Department Laboratory Experiments Catalog</h3>
                                 <p>All experiments registered across subjects with real individual student pass &amp; pending counts</p>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                <button
+                                    type="button"
+                                    className="add-schedule-btn-podx"
+                                    style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                                    onClick={openUploadModal}
+                                >
+                                    <span>📤 Upload or add files</span>
+                                    <span className="upload-modal-badge" style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', padding: '1px 6px', fontSize: '0.65rem' }}>Beta</span>
+                                </button>
                             </div>
                         </div>
 
@@ -1585,11 +1780,12 @@ function HodDashboardApp() {
                                         <th>Students Pending</th>
                                         <th>Required Apparatus</th>
                                         <th>Status</th>
+                                        <th>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {experiments.length === 0 ? (
-                                        <tr><td colSpan="8" style={{ textAlign: 'center', padding: '2rem', color: 'var(--podx-text-muted)' }}>No experiments found in database</td></tr>
+                                        <tr><td colSpan="9" style={{ textAlign: 'center', padding: '2rem', color: 'var(--podx-text-muted)' }}>No experiments found in database</td></tr>
                                     ) : (
                                         experiments
                                             .filter(e => !searchQuery || e.title.toLowerCase().includes(searchQuery.toLowerCase()) || e.experimentNumber.toLowerCase().includes(searchQuery.toLowerCase()) || e.subject.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -1620,6 +1816,27 @@ function HodDashboardApp() {
                                                     </td>
                                                     <td>
                                                         <span className="status-badge-chip-podx on-track">Active</span>
+                                                    </td>
+                                                    <td>
+                                                        <button
+                                                            className="action-btn-sm secondary"
+                                                            style={{
+                                                                fontSize: '0.75rem',
+                                                                padding: '6px 10px',
+                                                                display: 'inline-flex',
+                                                                alignItems: 'center',
+                                                                gap: '5px',
+                                                                whiteSpace: 'nowrap',
+                                                                borderRadius: '6px',
+                                                                background: 'rgba(99, 102, 241, 0.15)',
+                                                                color: '#a5b4fc',
+                                                                border: '1px solid rgba(99, 102, 241, 0.3)'
+                                                            }}
+                                                            onClick={() => handleReanalyzeExperiment(e._id, e.experimentNumber)}
+                                                            title="Re-run AI extraction to clean components and remove junk"
+                                                        >
+                                                            🔄 Re-analyse manual
+                                                        </button>
                                                     </td>
                                                 </tr>
                                             ))
@@ -1866,11 +2083,469 @@ function HodDashboardApp() {
                             </div>
                         </div>
                     </div>
+                {/* 8. ENROLLED STUDENTS DIRECTORY TAB */}
+                {activeTab === 'students' && (
+                    <div className="section-card-podx">
+                        <div className="section-header-podx" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                            <div>
+                                <h3>Department Enrolled Students Directory</h3>
+                                <p>All students listed with official Register Numbers, Academic Year, and Section from MongoDB</p>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                                <button
+                                    type="button"
+                                    className="add-schedule-btn-podx"
+                                    onClick={openUploadModal}
+                                    style={{ cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.85rem' }}
+                                >
+                                    <span>📤 Upload or add files</span>
+                                    <span className="upload-modal-badge" style={{ background: 'rgba(255,255,255,0.2)', color: '#fff', border: 'none', padding: '1px 6px', fontSize: '0.65rem' }}>Beta</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    className="action-btn-sm primary"
+                                    onClick={() => loadTabData('students')}
+                                    style={{ padding: '8px 14px' }}
+                                >
+                                    ↻ Refresh Roster
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Cohort Stats Pills */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '1.25rem' }}>
+                            <div style={{ background: '#18181b', border: '1px solid #2e2e33', borderRadius: '12px', padding: '12px 16px' }}>
+                                <span style={{ fontSize: '0.74rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Total Enrolled</span>
+                                <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#ffffff', marginTop: '2px' }}>{allStudents.length}</div>
+                            </div>
+                            <div style={{ background: '#18181b', border: '1px solid #2e2e33', borderRadius: '12px', padding: '12px 16px' }}>
+                                <span style={{ fontSize: '0.74rem', color: '#c084fc', textTransform: 'uppercase', letterSpacing: '0.4px' }}>3rd Year</span>
+                                <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#c084fc', marginTop: '2px' }}>
+                                    {allStudents.filter(s => s.year === '3rd Year').length}
+                                </div>
+                            </div>
+                            <div style={{ background: '#18181b', border: '1px solid #2e2e33', borderRadius: '12px', padding: '12px 16px' }}>
+                                <span style={{ fontSize: '0.74rem', color: '#38bdf8', textTransform: 'uppercase', letterSpacing: '0.4px' }}>2nd Year</span>
+                                <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#38bdf8', marginTop: '2px' }}>
+                                    {allStudents.filter(s => s.year === '2nd Year').length}
+                                </div>
+                            </div>
+                            <div style={{ background: '#18181b', border: '1px solid #2e2e33', borderRadius: '12px', padding: '12px 16px' }}>
+                                <span style={{ fontSize: '0.74rem', color: '#34d399', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Section A</span>
+                                <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#34d399', marginTop: '2px' }}>
+                                    {allStudents.filter(s => s.section === 'Section A').length}
+                                </div>
+                            </div>
+                            <div style={{ background: '#18181b', border: '1px solid #2e2e33', borderRadius: '12px', padding: '12px 16px' }}>
+                                <span style={{ fontSize: '0.74rem', color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.4px' }}>Section B</span>
+                                <div style={{ fontSize: '1.6rem', fontWeight: 800, color: '#fbbf24', marginTop: '2px' }}>
+                                    {allStudents.filter(s => s.section === 'Section B').length}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Search and Filters */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '1rem', background: '#1b1b1f', padding: '10px 14px', borderRadius: '10px', border: '1px solid #2e2e33' }}>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: '0.78rem', color: '#94a3b8', fontWeight: 600 }}>Filter Year:</span>
+                                {['All', '1st Year', '2nd Year', '3rd Year', '4th Year'].map(yr => (
+                                    <button
+                                        key={yr}
+                                        type="button"
+                                        className={`upload-filter-chip ${uploadYear === yr ? 'active' : ''}`}
+                                        onClick={() => setUploadYear(yr)}
+                                    >
+                                        {yr}
+                                    </button>
+                                ))}
+                                <span style={{ fontSize: '0.78rem', color: '#94a3b8', fontWeight: 600, marginLeft: '10px' }}>Section:</span>
+                                {['All', 'Section A', 'Section B'].map(sec => (
+                                    <button
+                                        key={sec}
+                                        type="button"
+                                        className={`upload-filter-chip ${uploadSection === sec ? 'active' : ''}`}
+                                        onClick={() => setUploadSection(sec)}
+                                    >
+                                        {sec}
+                                    </button>
+                                ))}
+                            </div>
+                            <input
+                                type="text"
+                                placeholder="🔍 Search by Register No or Name..."
+                                value={studentSearch}
+                                onChange={(e) => setStudentSearch(e.target.value)}
+                                className="upload-student-search"
+                                style={{ minWidth: '240px' }}
+                            />
+                        </div>
+
+                        {/* Full Students Roster Table */}
+                        <div className="table-responsive-podx">
+                            <table className="hod-table-podx">
+                                <thead>
+                                    <tr>
+                                        <th>Register Number</th>
+                                        <th>Student Name</th>
+                                        <th>Department</th>
+                                        <th>Academic Year</th>
+                                        <th>Section</th>
+                                        <th>Semester</th>
+                                        <th>Labs Completed</th>
+                                        <th>Security Clearance</th>
+                                        <th>Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {filteredUploadStudents.length === 0 ? (
+                                        <tr>
+                                            <td colSpan="9" style={{ textAlign: 'center', padding: '2rem', color: 'var(--podx-text-muted)' }}>
+                                                No students found matching the selected filter criteria.
+                                            </td>
+                                        </tr>
+                                    ) : (
+                                        filteredUploadStudents.map(stu => (
+                                            <tr key={stu._id || stu.username}>
+                                                <td>
+                                                    <span className="student-reg-badge">
+                                                        {stu.registerNumber || stu.registrationId}
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <strong style={{ color: '#ffffff' }}>{stu.name || stu.username}</strong>
+                                                </td>
+                                                <td>
+                                                    <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>{stu.department}</span>
+                                                </td>
+                                                <td>
+                                                    <span className="student-year-tag">{stu.year}</span>
+                                                </td>
+                                                <td>
+                                                    <span className="student-section-tag">{stu.section}</span>
+                                                </td>
+                                                <td>
+                                                    <span style={{ fontSize: '0.78rem', color: '#cbd5e1' }}>{stu.semester || 'Semester V'}</span>
+                                                </td>
+                                                <td>
+                                                    <span style={{ color: '#34d399', fontWeight: 800 }}>
+                                                        {stu.passedCount || 0} Passed
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <span className="status-badge-chip-podx on-track" style={{ fontSize: '0.72rem' }}>
+                                                        ✓ Granted
+                                                    </span>
+                                                </td>
+                                                <td>
+                                                    <span className="student-status-tag">
+                                                        ● {stu.status || 'Active'}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        ))
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 )}
             </main>
 
             {/* ========================================================= */}
             {/* MODALS                                                    */}
+            {/* ========================================================= */}
+
+            {/* 0. UPLOAD OR ADD FILES MODAL (Matching User Screenshot + Student Cohort Table) */}
+            {isUploadModalOpen && (
+                <div className="hod-modal-overlay" onClick={() => setIsUploadModalOpen(false)}>
+                    <div className="upload-modal-window" onClick={(e) => e.stopPropagation()}>
+                        {/* Header */}
+                        <div className="upload-modal-header">
+                            <div className="upload-modal-title-wrap">
+                                <h3 className="upload-modal-title">Upload or add files</h3>
+                                <span className="upload-modal-badge">Beta</span>
+                            </div>
+                            <button
+                                className="upload-modal-close"
+                                onClick={() => setIsUploadModalOpen(false)}
+                                title="Close modal"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Drag and Drop Zone */}
+                        <div
+                            className={`upload-dropzone-box ${isDragging ? 'dragging' : ''}`}
+                            onDragOver={handleDragOver}
+                            onDragLeave={handleDragLeave}
+                            onDrop={handleDrop}
+                            onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                        >
+                            <input
+                                ref={fileInputRef}
+                                type="file"
+                                accept=".pdf,application/pdf,.doc,.docx,.png,.jpg,.jpeg"
+                                style={{ display: 'none' }}
+                                onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) {
+                                        setUploadFile(f);
+                                        if (!uploadTitle) {
+                                            setUploadTitle(f.name.replace(/\.[^/.]+$/, ''));
+                                        }
+                                    }
+                                    e.target.value = '';
+                                }}
+                            />
+                            <div style={{ fontSize: '2.5rem', marginBottom: '10px' }}>📁</div>
+                            <div className="upload-dropzone-title">Drag files or photos here</div>
+                            <div className="upload-dropzone-sub">Documents, images, spreadsheets, and code files</div>
+                            <button
+                                type="button"
+                                className="upload-choose-btn"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    fileInputRef.current && fileInputRef.current.click();
+                                }}
+                            >
+                                Choose files
+                            </button>
+                        </div>
+
+                        {/* Selected File Card */}
+                        {uploadFile && (
+                            <div className="upload-file-preview-card">
+                                <div className="upload-file-meta">
+                                    <div className="upload-file-icon">📄</div>
+                                    <div>
+                                        <div className="upload-file-name">{uploadFile.name}</div>
+                                        <div className="upload-file-size">
+                                            {(uploadFile.size / 1024).toFixed(1)} KB • {uploadFile.type || 'Document'}
+                                        </div>
+                                    </div>
+                                </div>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                    <span className="upload-drive-indicator">
+                                        ☁️ Google Drive Target
+                                    </span>
+                                    <button
+                                        type="button"
+                                        className="upload-file-remove"
+                                        onClick={() => setUploadFile(null)}
+                                        title="Remove file"
+                                    >
+                                        ✕
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Metadata Config Grid */}
+                        <div className="upload-form-grid">
+                            <div className="upload-form-field">
+                                <label>Subject / Laboratory</label>
+                                <select
+                                    value={uploadSubject}
+                                    onChange={(e) => setUploadSubject(e.target.value)}
+                                    className="upload-select-dark"
+                                >
+                                    <option value="Electronic Circuits Lab">Electronic Circuits Lab</option>
+                                    <option value="Linear Integrated Circuits Lab">Linear Integrated Circuits Lab</option>
+                                    <option value="VLSI Design Laboratory">VLSI Design Laboratory</option>
+                                    <option value="Digital Signal Processing Lab">Digital Signal Processing Lab</option>
+                                    <option value="Microprocessors & Microcontrollers">Microprocessors & Microcontrollers</option>
+                                    <option value="Communication Systems Lab">Communication Systems Lab</option>
+                                    <option value="Embedded Systems Laboratory">Embedded Systems Laboratory</option>
+                                </select>
+                            </div>
+
+                            <div className="upload-form-field">
+                                <label>Manual / File Title</label>
+                                <input
+                                    type="text"
+                                    placeholder="e.g. EC8381 Lab Manual V-Semester"
+                                    value={uploadTitle}
+                                    onChange={(e) => setUploadTitle(e.target.value)}
+                                    className="upload-input-dark"
+                                />
+                            </div>
+
+                            <div className="upload-form-field">
+                                <label>Target Department</label>
+                                <select
+                                    value={uploadDepartment}
+                                    onChange={(e) => setUploadDepartment(e.target.value)}
+                                    className="upload-select-dark"
+                                >
+                                    <option value="ECE">ECE (Electronics &amp; Comm)</option>
+                                    <option value="CSE">CSE (Computer Science)</option>
+                                    <option value="EEE">EEE (Electrical &amp; Electronics)</option>
+                                    <option value="MECH">MECH (Mechanical Eng)</option>
+                                </select>
+                            </div>
+
+                            <div className="upload-form-field">
+                                <label>Target Year</label>
+                                <select
+                                    value={uploadYear}
+                                    onChange={(e) => setUploadYear(e.target.value)}
+                                    className="upload-select-dark"
+                                >
+                                    <option value="All">All Years</option>
+                                    <option value="1st Year">1st Year</option>
+                                    <option value="2nd Year">2nd Year</option>
+                                    <option value="3rd Year">3rd Year</option>
+                                    <option value="4th Year">4th Year</option>
+                                </select>
+                            </div>
+
+                            <div className="upload-form-field">
+                                <label>Target Section</label>
+                                <select
+                                    value={uploadSection}
+                                    onChange={(e) => setUploadSection(e.target.value)}
+                                    className="upload-select-dark"
+                                >
+                                    <option value="All">All Sections</option>
+                                    <option value="Section A">Section A</option>
+                                    <option value="Section B">Section B</option>
+                                    <option value="Section C">Section C</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Under, at the bottom, students are listed out */}
+                        <div className="upload-students-container">
+                            <div className="upload-students-topbar">
+                                <div className="upload-students-title-block">
+                                    <h4>
+                                        <span>👥 Enrolled Students List</span>
+                                        <span style={{ fontSize: '0.78rem', color: '#818cf8', background: 'rgba(99,102,241,0.15)', padding: '2px 8px', borderRadius: '12px' }}>
+                                            {filteredUploadStudents.length} Students Selected
+                                        </span>
+                                    </h4>
+                                    <p>Showing students from {uploadYear} • {uploadSection} with official College Register Numbers</p>
+                                </div>
+
+                                <div className="upload-students-filters">
+                                    <input
+                                        type="text"
+                                        placeholder="🔍 Search name or register no..."
+                                        value={studentSearch}
+                                        onChange={(e) => setStudentSearch(e.target.value)}
+                                        className="upload-student-search"
+                                    />
+                                    {['All', '1st Year', '2nd Year', '3rd Year', '4th Year'].map(yr => (
+                                        <button
+                                            key={yr}
+                                            type="button"
+                                            className={`upload-filter-chip ${uploadYear === yr ? 'active' : ''}`}
+                                            onClick={() => setUploadYear(yr)}
+                                        >
+                                            {yr}
+                                        </button>
+                                    ))}
+                                    {['All', 'Section A', 'Section B'].map(sec => (
+                                        <button
+                                            key={sec}
+                                            type="button"
+                                            className={`upload-filter-chip ${uploadSection === sec ? 'active' : ''}`}
+                                            onClick={() => setUploadSection(sec)}
+                                        >
+                                            {sec}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Students Table */}
+                            <div className="upload-students-scroll">
+                                <table className="upload-students-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Register Number</th>
+                                            <th>Student Name</th>
+                                            <th>Year</th>
+                                            <th>Section</th>
+                                            <th>Department</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {studentsLoading ? (
+                                            <tr>
+                                                <td colSpan="6" style={{ textAlign: 'center', padding: '1.5rem', color: '#94a3b8' }}>
+                                                    Loading student cohort from MongoDB...
+                                                </td>
+                                            </tr>
+                                        ) : filteredUploadStudents.length === 0 ? (
+                                            <tr>
+                                                <td colSpan="6" style={{ textAlign: 'center', padding: '1.5rem', color: '#94a3b8' }}>
+                                                    No students match the selected Year ({uploadYear}) and Section ({uploadSection}).
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            filteredUploadStudents.map((stu) => (
+                                                <tr key={stu._id || stu.username}>
+                                                    <td>
+                                                        <span className="student-reg-badge">
+                                                            {stu.registerNumber || stu.registrationId}
+                                                        </span>
+                                                    </td>
+                                                    <td>
+                                                        <strong style={{ color: '#ffffff' }}>{stu.name || stu.username}</strong>
+                                                    </td>
+                                                    <td>
+                                                        <span className="student-year-tag">{stu.year}</span>
+                                                    </td>
+                                                    <td>
+                                                        <span className="student-section-tag">{stu.section}</span>
+                                                    </td>
+                                                    <td>
+                                                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{stu.department}</span>
+                                                    </td>
+                                                    <td>
+                                                        <span className="student-status-tag">
+                                                            ● {stu.status || 'Enrolled'}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Modal Footer Actions */}
+                        <div className="upload-modal-footer">
+                            <div className="upload-modal-info">
+                                <span>☁️</span>
+                                <span>PDF will be uploaded directly to Google Drive (manuals folder)</span>
+                            </div>
+
+                            <div className="upload-modal-buttons">
+                                <button
+                                    type="button"
+                                    className="upload-btn-cancel"
+                                    onClick={() => setIsUploadModalOpen(false)}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="upload-btn-submit"
+                                    onClick={handleUploadModalSubmit}
+                                    disabled={!uploadFile || isSaving}
+                                >
+                                    {isSaving ? 'Uploading to Drive...' : '☁️ Upload to Google Drive & Save'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
             {/* ========================================================= */}
 
             {/* 1. EDIT SCHEDULE / MILESTONE MODAL */}

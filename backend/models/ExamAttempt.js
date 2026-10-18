@@ -146,6 +146,14 @@ const examAttemptSchema = new mongoose.Schema({
             type: String,
             required: true
         },
+        driveFileId: {
+            type: String,
+            default: ''
+        },
+        driveLink: {
+            type: String,
+            default: ''
+        },
         timestamp: {
             type: Date,
             default: Date.now

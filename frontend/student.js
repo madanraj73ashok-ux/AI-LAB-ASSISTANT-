@@ -239,15 +239,15 @@ async function loadDashboardOverview() {
 async function loadSubjects() {
     const res = await studentFetch('/subjects');
     const dashGrid = document.getElementById('dashboardSubjectsGrid');
-    const expContainer = document.getElementById('subjectsContainer');
 
     if (!res.success || !res.data || res.data.length === 0) {
         if (dashGrid) dashGrid.innerHTML = `<p style="color: var(--text-muted); grid-column: 1/-1;">No subjects currently available.</p>`;
-        if (expContainer) expContainer.innerHTML = `<p style="color: var(--text-muted); grid-column: 1/-1;">No subjects available.</p>`;
         return;
     }
 
-    // 1. Populate Dashboard Grid (Ref: User UI Images 2 & 3 with 'Select these' / 'For my project-related')
+    state.subjects = res.data;
+
+    // 1. Populate Dashboard Grid (Ref: User UI Images with 'Select these' / 'For my project-related')
     if (dashGrid) {
         dashGrid.innerHTML = res.data.map(subj => {
             const completionPercent = subj.availableExperiments > 0 
@@ -255,13 +255,13 @@ async function loadSubjects() {
                 : 0;
 
             return `
-                <div class="course-card-item">
+                <div class="course-card-item" onclick="selectSubjectAndOpen('${escapeHtml(subj.subjectName)}')">
                     <div class="course-card-thumb-wrap">
                         <img src="${escapeHtml(subj.imageUrl || '/images/aec_lab_cover.jpg')}" alt="${escapeHtml(subj.subjectName)}" class="course-card-img" />
                         <div class="card-rating-badge">
                             <span>⭐</span> ${escapeHtml(subj.rating || '5.0 (42)')}
                         </div>
-                        <button type="button" class="card-bookmark-icon" title="Save to project wishlist">
+                        <button type="button" class="card-bookmark-icon" title="Save to project wishlist" onclick="event.stopPropagation()">
                             🔖
                         </button>
                     </div>
@@ -283,7 +283,7 @@ async function loadSubjects() {
                             </div>
                         </div>
 
-                        <button type="button" class="btn-select-course" onclick="selectSubjectAndOpen('${escapeHtml(subj.subjectName)}')">
+                        <button type="button" class="btn-select-course" onclick="event.stopPropagation(); selectSubjectAndOpen('${escapeHtml(subj.subjectName)}')">
                             Select these
                         </button>
                     </div>
@@ -292,75 +292,143 @@ async function loadSubjects() {
         }).join('');
     }
 
-    // 2. Populate View-Experiments Container
-    if (expContainer) {
-        expContainer.innerHTML = res.data.map(subj => `
-            <div class="subject-card ${state.selectedSubject === subj.subjectName ? 'selected' : ''}" onclick="selectSubject('${escapeHtml(subj.subjectName)}')">
-                <div>
-                    <div class="subject-header">
-                        <span class="subject-code-tag">${escapeHtml(subj.subjectCode)}</span>
-                        <span style="font-size: 0.8rem; color: var(--purple-light);">Select Subject →</span>
-                    </div>
-                    <h3 class="subject-title">${escapeHtml(subj.subjectName)}</h3>
-                    <p class="subject-lab">${escapeHtml(subj.laboratory)}</p>
-                </div>
-                <div class="subject-stats-bar">
-                    <div class="stat-item">
-                        <span class="num">${subj.availableExperiments}</span>
-                        <span class="lbl">Total</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="num" style="color: #10b981;">${subj.passedExperiments}</span>
-                        <span class="lbl">Passed</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="num" style="color: #f59e0b;">${subj.remainingExperiments}</span>
-                        <span class="lbl">Remaining</span>
-                    </div>
-                </div>
-                <button class="primary-btn" onclick="selectSubject('${escapeHtml(subj.subjectName)}')">View Experiments →</button>
-            </div>
+    // 2. Populate Subject Switcher Dropdown in Experiments View
+    const dropdown = document.getElementById('subjectSwitcherDropdown');
+    if (dropdown) {
+        dropdown.innerHTML = res.data.map(s => `
+            <option value="${escapeHtml(s.subjectName)}" ${state.selectedSubject === s.subjectName ? 'selected' : ''}>
+                ${escapeHtml(s.subjectName)} (${s.passedExperiments}/${s.availableExperiments} Passed)
+            </option>
         `).join('');
     }
 
-    // If a subject is already selected or default to the first
+    // Default to first subject if none selected
     if (!state.selectedSubject && res.data.length > 0) {
         state.selectedSubject = res.data[0].subjectName;
-        loadExperimentsForSubject(state.selectedSubject);
-    } else if (state.selectedSubject) {
+    }
+
+    if (state.selectedSubject) {
         loadExperimentsForSubject(state.selectedSubject);
     }
 }
 
-// Select a subject from dashboard and open its experiments page
+// Select a subject from dashboard and open its experiments page directly
 window.selectSubjectAndOpen = function(subjectName) {
     state.selectedSubject = subjectName;
     switchTab('experiments');
-    selectSubject(subjectName);
+    loadExperimentsForSubject(subjectName);
 };
 
 window.selectSubject = function(subjectName) {
     state.selectedSubject = subjectName;
-    document.querySelectorAll('.subject-card').forEach(card => {
-        card.classList.toggle('selected', card.querySelector('.subject-title')?.textContent.trim() === subjectName);
-    });
+    const dropdown = document.getElementById('subjectSwitcherDropdown');
+    if (dropdown) dropdown.value = subjectName;
     loadExperimentsForSubject(subjectName);
 };
 
 async function loadExperimentsForSubject(subjectName) {
-    const titleEl = document.getElementById('selectedSubjectTitle');
-    if (titleEl) titleEl.textContent = `${subjectName} Experiments`;
+    // 1. Update Subject Hub Header Banner
+    const currSubj = (state.subjects || []).find(s => s.subjectName === subjectName);
+    const titleEl = document.getElementById('hubSubjectTitle');
+    const codeEl = document.getElementById('hubSubjectCode');
+    const labEl = document.getElementById('hubSubjectLab');
+    const deptEl = document.getElementById('hubSubjectDept');
+    const statTotal = document.getElementById('hubStatTotal');
+    const statPassed = document.getElementById('hubStatPassed');
+    const statRemaining = document.getElementById('hubStatRemaining');
+    const sectionTitle = document.getElementById('selectedSubjectTitle');
 
+    if (titleEl) titleEl.textContent = subjectName;
+    if (codeEl) codeEl.textContent = currSubj?.subjectCode || 'LAB';
+    if (labEl) labEl.textContent = currSubj?.laboratory || 'Laboratory';
+    if (deptEl) deptEl.textContent = currSubj?.dept || 'Department of Engineering';
+    if (statTotal) statTotal.textContent = currSubj?.availableExperiments ?? 0;
+    if (statPassed) statPassed.textContent = currSubj?.passedExperiments ?? 0;
+    if (statRemaining) statRemaining.textContent = currSubj?.remainingExperiments ?? 0;
+    if (sectionTitle) sectionTitle.textContent = `${subjectName} Experiments`;
+
+    const dropdown = document.getElementById('subjectSwitcherDropdown');
+    if (dropdown && dropdown.value !== subjectName) dropdown.value = subjectName;
+
+    // 2. Fetch Experiments & Lab Manual for this Subject
     const res = await studentFetch(`/experiments?subject=${encodeURIComponent(subjectName)}`);
+    const manualCard = document.getElementById('subjectManualCard');
+    const container = document.getElementById('experimentsContainer');
+
+    // 3. Render Dedicated Subject Lab Manual Card
+    if (manualCard) {
+        if (res.subjectManual) {
+            manualCard.innerHTML = `
+                <div class="manual-card-inner">
+                    <div class="manual-card-left">
+                        <div class="manual-icon-badge">📖</div>
+                        <div class="manual-text-group">
+                            <div class="manual-status-row">
+                                <span class="manual-status-pill">Official Lab Manual</span>
+                                <span class="manual-format-pill">PDF Document</span>
+                                ${res.subjectManual.version ? `<span class="manual-format-pill">v${res.subjectManual.version}.0</span>` : ''}
+                            </div>
+                            <h3 class="manual-heading">${escapeHtml(res.subjectManual.title || `${subjectName} Official Lab Manual`)}</h3>
+                            <p class="manual-subtext">Verified curriculum guide. Review apparatus schematics, laboratory safety protocols, and pre-lab background material.</p>
+                        </div>
+                    </div>
+                    <div class="manual-card-actions">
+                        <a href="${res.subjectManual.fileUrl}" target="_blank" rel="noopener noreferrer" class="btn-open-manual">
+                            <span>📄</span> Open / Download Manual
+                        </a>
+                    </div>
+                </div>
+            `;
+            manualCard.style.display = 'block';
+        } else {
+            manualCard.innerHTML = `
+                <div class="manual-empty-state">
+                    <span>ℹ️</span> No official lab manual has been published for ${escapeHtml(subjectName)} yet.
+                </div>
+            `;
+            manualCard.style.display = 'block';
+        }
+    }
+
+    // 4. Render Experiments List strictly for this Subject
+    state.currentExperiments = res.data || [];
+    state.activeFilter = 'all';
+
+    // Reset filter buttons
+    document.querySelectorAll('.exp-filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-filter') === 'all');
+    });
+
+    renderFilteredExperiments();
+}
+
+window.filterExperiments = function(filter) {
+    state.activeFilter = filter;
+    document.querySelectorAll('.exp-filter-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-filter') === filter);
+    });
+    renderFilteredExperiments();
+};
+
+function renderFilteredExperiments() {
     const container = document.getElementById('experimentsContainer');
     if (!container) return;
 
-    if (!res.success || !res.data || res.data.length === 0) {
-        container.innerHTML = `<p style="color: var(--text-muted); padding: 2rem;">No experiments published under ${escapeHtml(subjectName)}.</p>`;
+    let list = state.currentExperiments || [];
+    const filter = state.activeFilter || 'all';
+
+    if (filter === 'available') {
+        list = list.filter(e => e.studentStatus === 'Test Available' || e.canAttempt);
+    } else if (filter === 'passed') {
+        list = list.filter(e => e.studentStatus === 'Passed' || e.studentStatus === 'Ready for Components' || e.studentStatus === 'Completed' || e.studentStatus === 'In Lab Session');
+    }
+
+    if (list.length === 0) {
+        container.innerHTML = `<p style="color: var(--text-muted); padding: 2rem;">No experiments match the "${escapeHtml(filter)}" filter.</p>`;
         return;
     }
 
-    container.innerHTML = res.data.map(exp => {
+    container.innerHTML = list.map(exp => {
         let badgeClass = 'not-started';
         if (exp.studentStatus === 'Test Available') badgeClass = 'test-available';
         if (exp.studentStatus === 'Test In Progress') badgeClass = 'test-in-progress';
@@ -397,6 +465,11 @@ async function loadExperimentsForSubject(subjectName) {
                 </div>
                 <div class="exp-actions">
                     <span class="badge-status ${badgeClass}">${escapeHtml(exp.studentStatus)}</span>
+                    ${exp.manual && exp.manual.fileUrl ? `
+                        <a href="${exp.manual.fileUrl}" target="_blank" rel="noopener noreferrer" class="secondary-btn" style="padding: 0.5rem 0.9rem; font-size: 0.82rem; text-decoration: none;" title="Open Lab Manual for this Experiment">
+                            📄 Manual
+                        </a>
+                    ` : ''}
                     <button class="${actionBtnClass}" onclick="openExperimentIntroduction('${escapeHtml(exp.experimentNumber)}')">
                         ${actionBtnText}
                     </button>
@@ -527,13 +600,7 @@ window.startExamSession = async function() {
     state.examAnswers = {};
     state.currentQuestionIndex = 0;
     state.examWarningCount = 0;
-    state.eyesDeviationStartTime = null;
-    state.isSuspended = false;
     state.isEjecting = false;
-
-    // Reset warning banner
-    const eyesBanner = document.getElementById('eyesWarningBanner');
-    if (eyesBanner) eyesBanner.style.display = 'none';
 
     // Switch to Exam HUD
     switchTab('exam');
@@ -792,10 +859,6 @@ function stopExamMonitoring() {
     window.removeEventListener('paste', preventExamPaste);
     window.removeEventListener('contextmenu', preventExamContextMenu);
 
-    const eyesBanner = document.getElementById('eyesWarningBanner');
-    if (eyesBanner) eyesBanner.style.display = 'none';
-    state.eyesDeviationStartTime = null;
-
     if (state.snapshotInterval) {
         clearInterval(state.snapshotInterval);
         state.snapshotInterval = null;
@@ -900,7 +963,7 @@ async function loadBlazeFaceModel() {
     if (window.blazeface) {
         try {
             globalBlazeModel = await window.blazeface.load();
-            console.log('✅ BlazeFace Model Loaded for Face & Eye Tracking');
+            console.log('✅ BlazeFace Model Loaded for Face Presence Verification');
             return globalBlazeModel;
         } catch (err) {
             console.warn('Failed to load BlazeFace:', err);
@@ -909,15 +972,15 @@ async function loadBlazeFaceModel() {
     return null;
 }
 
-// Transparent on-device camera presence, gaze tracking & mobile phone detection
+// Transparent on-device camera presence, face verification & mobile phone detection
 async function initCameraMonitoring() {
     const video = document.getElementById('cameraVideo');
     const overlayCanvas = document.getElementById('cameraCanvas');
     const statusText = document.getElementById('cameraStatusText');
     const phoneDot = document.getElementById('phoneStatusDot');
     const phoneLabel = document.getElementById('phoneStatusLabel');
-    const gazeDot = document.getElementById('gazeStatusDot');
-    const gazeLabel = document.getElementById('gazeStatusLabel');
+    const faceDot = document.getElementById('faceStatusDot');
+    const faceLabel = document.getElementById('faceStatusLabel');
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -940,11 +1003,11 @@ async function initCameraMonitoring() {
             loadBlazeFaceModel()
         ]);
 
-        if (statusText) statusText.textContent = 'Active (Eye & Phone AI)';
+        if (statusText) statusText.textContent = 'Active (Face & Phone AI)';
         if (phoneDot) phoneDot.style.background = '#10b981';
         if (phoneLabel) phoneLabel.innerHTML = 'Phone Detection: <strong style="color: #10b981;">Active</strong>';
-        if (gazeDot) gazeDot.style.background = '#10b981';
-        if (gazeLabel) gazeLabel.innerHTML = 'Eye / Gaze: <strong style="color: #10b981;">On Screen</strong>';
+        if (faceDot) faceDot.style.background = '#10b981';
+        if (faceLabel) faceLabel.innerHTML = 'Face Presence: <strong style="color: #10b981;">Verified</strong>';
 
         // Initialize snapshot counter
         state.uploadedSnapshotsCount = 0;
@@ -1002,90 +1065,34 @@ async function initCameraMonitoring() {
                     }
                 }
 
-                // --- 2. EYE CLOSED & LOOKING DOWN DETECTION (BlazeFace & Geometry) ---
-                let isEyesDownOrClosed = false;
-                let deviationReason = '';
-
+                // --- 2. FACE PRESENCE DETECTION (BlazeFace) ---
                 if (blazeModel) {
                     const faces = await blazeModel.estimateFaces(video, false);
-                    if (!faces || faces.length === 0) {
-                        isEyesDownOrClosed = true;
-                        deviationReason = 'Face Absent / Looking Away';
-                    } else {
+                    const facePresent = faces && faces.length > 0;
+
+                    if (faceDot) faceDot.style.background = facePresent ? '#10b981' : '#f59e0b';
+                    if (faceLabel) faceLabel.innerHTML = facePresent
+                        ? 'Face Presence: <strong style="color: #10b981;">Verified</strong>'
+                        : 'Face Presence: <strong style="color: #f59e0b;">Not Detected</strong>';
+
+                    if (facePresent && ctx) {
                         const face = faces[0];
-                        const rightEye = face.landmarks[0]; // [x, y]
-                        const leftEye = face.landmarks[1];  // [x, y]
-                        const nose = face.landmarks[2];     // [x, y]
-                        const mouth = face.landmarks[3];    // [x, y]
                         const [x1, y1] = face.topLeft;
                         const [x2, y2] = face.bottomRight;
                         const faceH = y2 - y1;
                         const faceW = x2 - x1;
 
-                        const eyeY = (rightEye[1] + leftEye[1]) / 2;
-                        const eyeRelativeY = (eyeY - y1) / (faceH || 1);
-                        const noseToEyeDist = nose[1] - eyeY;
-                        const mouthToNoseDist = mouth[1] - nose[1];
+                        ctx.strokeStyle = '#10b981';
+                        ctx.lineWidth = 2;
+                        ctx.strokeRect(x1, y1, faceW, faceH);
 
-                        // Head pitch check: when looking down, eye level lowers and nose-to-eye distance compresses
-                        const isHeadDown = (eyeRelativeY > 0.43) || (noseToEyeDist < 0.72 * mouthToNoseDist);
-
-                        // Eye patch closed check: sample contrast around eyes
-                        let isEyeClosed = false;
-                        if (ctx && faceW > 30) {
-                            const eyePatchSize = Math.max(8, Math.floor(faceW * 0.12));
-                            let openContrastSum = 0;
-                            [rightEye, leftEye].forEach(pt => {
-                                try {
-                                    const pData = ctx.getImageData(Math.max(0, pt[0] - eyePatchSize/2), Math.max(0, pt[1] - eyePatchSize/2), eyePatchSize, eyePatchSize).data;
-                                    let minL = 255, maxL = 0;
-                                    for (let i = 0; i < pData.length; i += 4) {
-                                        const lum = 0.299 * pData[i] + 0.587 * pData[i+1] + 0.114 * pData[i+2];
-                                        if (lum < minL) minL = lum;
-                                        if (lum > maxL) maxL = lum;
-                                    }
-                                    openContrastSum += (maxL - minL);
-                                } catch(e) {}
-                            });
-                            if (openContrastSum < 32) {
-                                isEyeClosed = true;
-                            }
-                        }
-
-                        if (isHeadDown || isEyeClosed) {
-                            isEyesDownOrClosed = true;
-                            deviationReason = isEyeClosed ? 'Eyes Closed Detected' : 'Eyes Directed Downward Detected';
-                        }
-
-                        // Draw bounding box and eye landmarks
-                        if (ctx) {
-                            ctx.strokeStyle = isEyesDownOrClosed ? '#f59e0b' : '#10b981';
-                            ctx.lineWidth = 2;
-                            ctx.strokeRect(x1, y1, faceW, faceH);
-
-                            const label = isEyesDownOrClosed ? `⚠️ ${deviationReason}` : `Examinee (Eyes On Screen)`;
-                            ctx.fillStyle = isEyesDownOrClosed ? '#f59e0b' : '#10b981';
-                            ctx.font = 'bold 10px Inter, sans-serif';
-                            ctx.fillRect(x1, Math.max(0, y1 - 16), ctx.measureText(label).width + 8, 16);
-                            ctx.fillStyle = '#ffffff';
-                            ctx.fillText(label, x1 + 4, Math.max(12, y1 - 4));
-
-                            // Eye dots
-                            ctx.fillStyle = isEyesDownOrClosed ? '#ef4444' : '#38bdf8';
-                            [rightEye, leftEye].forEach(pt => {
-                                ctx.beginPath();
-                                ctx.arc(pt[0], pt[1], 4, 0, 2 * Math.PI);
-                                ctx.fill();
-                            });
-                        }
+                        const label = 'Examinee Verified';
+                        ctx.fillStyle = '#10b981';
+                        ctx.font = 'bold 10px Inter, sans-serif';
+                        ctx.fillRect(x1, Math.max(0, y1 - 16), ctx.measureText(label).width + 8, 16);
+                        ctx.fillStyle = '#ffffff';
+                        ctx.fillText(label, x1 + 4, Math.max(12, y1 - 4));
                     }
-                }
-
-                // --- 3. HANDLE 3-SECOND GRACE TIMER FOR EYES DOWN / CLOSED ---
-                if (isEyesDownOrClosed) {
-                    handleEyesDeviationActive(deviationReason);
-                } else {
-                    handleEyesDeviationRecovered();
                 }
 
             } catch (cvErr) {
@@ -1247,142 +1254,8 @@ window.simulatePhoneDetection = function() {
     triggerPhoneDetectionEjection('Smartphone (Simulation)', 0.99);
 };
 
-// ==========================================
-// 10. EYES CLOSED / DOWN 3-SECOND COUNTDOWN & SUSPENSION
-// ==========================================
-function handleEyesDeviationActive(reason = 'Eyes Closed / Down') {
-    if (state.isSuspended || state.isEjecting) return;
 
-    if (!state.eyesDeviationStartTime) {
-        state.eyesDeviationStartTime = Date.now();
-        console.warn(`⚠️ Gaze deviation detected (${reason}). Starting 3-second grace window.`);
-    }
 
-    const elapsedMs = Date.now() - state.eyesDeviationStartTime;
-    const remainingSec = Math.max(0, 3 - (elapsedMs / 1000));
-
-    // Show on-screen warning banner
-    const banner = document.getElementById('eyesWarningBanner');
-    const numEl = document.getElementById('eyesCountdownNumber');
-    const barEl = document.getElementById('eyesCountdownBar');
-    const gazeDot = document.getElementById('gazeStatusDot');
-    const gazeLabel = document.getElementById('gazeStatusLabel');
-
-    if (banner) banner.style.display = 'block';
-    if (numEl) numEl.textContent = `${Math.ceil(remainingSec)}s`;
-    if (barEl) barEl.style.width = `${(remainingSec / 3) * 100}%`;
-
-    if (gazeDot) gazeDot.style.background = '#ef4444';
-    if (gazeLabel) gazeLabel.innerHTML = `Eye / Gaze: <strong style="color: #ef4444;">${escapeHtml(reason).toUpperCase()}</strong>`;
-
-    // If 3 seconds has passed without recovery -> SUSPEND
-    if (elapsedMs >= 3000) {
-        triggerExamSuspension(`Eyes closed or directed down for >3 seconds (${reason})`);
-    }
-}
-
-function handleEyesDeviationRecovered() {
-    if (state.isSuspended || state.isEjecting) return;
-
-    if (state.eyesDeviationStartTime) {
-        console.log('✓ Student gaze returned to screen within grace period. Countdown reset.');
-        state.eyesDeviationStartTime = null;
-    }
-
-    const banner = document.getElementById('eyesWarningBanner');
-    if (banner) banner.style.display = 'none';
-
-    const gazeDot = document.getElementById('gazeStatusDot');
-    const gazeLabel = document.getElementById('gazeStatusLabel');
-    if (gazeDot) gazeDot.style.background = '#10b981';
-    if (gazeLabel) gazeLabel.innerHTML = 'Eye / Gaze: <strong style="color: #10b981;">Looking at Screen</strong>';
-}
-
-window.triggerExamSuspension = async function(reason = 'Eyes closed or looking down for >3 seconds') {
-    if (state.isSuspended) return;
-    state.isSuspended = true;
-
-    // 1. Terminate local timers immediately
-    clearInterval(state.examTimerInterval);
-    if (state.cameraMonitoringInterval) {
-        clearInterval(state.cameraMonitoringInterval);
-        state.cameraMonitoringInterval = null;
-    }
-    if (state.snapshotInterval) {
-        clearInterval(state.snapshotInterval);
-        state.snapshotInterval = null;
-    }
-
-    // 2. Play warning tone
-    try {
-        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(320, audioCtx.currentTime);
-        gain.gain.setValueAtTime(0.4, audioCtx.currentTime);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + 0.5);
-    } catch (e) {}
-
-    // 3. Immediately capture evidence photo of eyes closed / down
-    try {
-        await captureAndUploadSnapshot('warning', reason);
-    } catch (e) {}
-
-    // 4. Stop camera hardware
-    if (state.cameraStream) {
-        state.cameraStream.getTracks().forEach(t => t.stop());
-        state.cameraStream = null;
-    }
-
-    // 5. Notify server of suspension
-    try {
-        if (state.activeExam) {
-            await studentFetch('/exams/event', {
-                method: 'POST',
-                body: JSON.stringify({
-                    attemptId: state.activeExam.attemptId,
-                    eventType: 'eyes_closed_down',
-                    action: 'suspend',
-                    details: reason
-                })
-            });
-        }
-    } catch (err) {
-        console.error('Suspension report error:', err);
-    }
-
-    // 6. Hide warning banner
-    const banner = document.getElementById('eyesWarningBanner');
-    if (banner) banner.style.display = 'none';
-
-    // 7. Alert examinee and return to dashboard
-    showToast('🛑 Assessment Suspended: Eyes closed or down for more than 3 seconds.', 'error');
-    alert(`🛑 ASSESSMENT SUSPENDED\n\nAcademic integrity policy enforced:\nYour eyes were detected closed or directed down/away for more than 3 seconds without recovery.\n\nYour exam attempt has been suspended and automatically submitted for staff review.`);
-
-    switchTab('dashboard');
-    loadDashboardOverview();
-};
-
-// Simulation trigger for testing eyes down warning without physical simulation
-window.simulateEyesDownWarning = function() {
-    if (!state.activeExam) {
-        showToast('Please start an exam session first before testing eyes down.', 'warning');
-        return;
-    }
-    showToast('Simulating eyes down / closed detection. Look at the screen warning!', 'warning');
-    state.eyesDeviationStartTime = Date.now();
-    const interval = setInterval(() => {
-        if (!state.eyesDeviationStartTime || state.isSuspended) {
-            clearInterval(interval);
-            return;
-        }
-        handleEyesDeviationActive('Eyes Down (Simulation)');
-    }, 150);
-};
 
 
 // ==========================================
@@ -1439,11 +1312,23 @@ async function loadComponentsView() {
     }
 
     if (!d.components || d.components.length === 0) {
-        grid.innerHTML = bannerHtml + `<p style="color: var(--text-muted); grid-column: 1/-1;">No hardware components required for this practical.</p>`;
+        grid.innerHTML = bannerHtml + `
+            <div style="grid-column: 1/-1; text-align: center; padding: 2.5rem 1rem; background: var(--bg-card); border-radius: 12px; border: 1px dashed var(--border-light);">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.7;">📦</div>
+                <h4 style="color: var(--text-white); margin-bottom: 0.25rem;">No components extracted yet</h4>
+                <p style="color: var(--text-muted); font-size: 0.85rem; max-width: 400px; margin: 0 auto;">
+                    Hardware apparatus has not yet been processed for this experiment, or practical is entirely software-based.
+                </p>
+            </div>
+        `;
         return;
     }
 
-    grid.innerHTML = bannerHtml + d.components.map(c => `
+    grid.innerHTML = bannerHtml + d.components.map(c => {
+        const hasSpec = c.specifications && c.specifications.trim() && c.specifications !== 'Lab manual standard apparatus';
+        const hasSafety = c.safetyPrecautions && c.safetyPrecautions.trim();
+
+        return `
         <div class="comp-card">
             <div>
                 <div class="comp-card-top">
@@ -1455,16 +1340,19 @@ async function loadComponentsView() {
                     <div>Stock: <strong style="color: #10b981;">${c.availableQuantity}</strong></div>
                     <div>Rack: <strong>${escapeHtml(c.storageLocation)}</strong></div>
                 </div>
+                ${hasSpec ? `
                 <div class="comp-spec-box">
                     <strong>Specifications:</strong> ${escapeHtml(c.specifications)}
-                </div>
+                </div>` : ''}
             </div>
+            ${hasSafety ? `
             <div class="comp-safety-box">
                 <span>⚠️</span>
                 <span><strong>Safety Precautions:</strong> ${escapeHtml(c.safetyPrecautions)}</span>
-            </div>
+            </div>` : ''}
         </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 // ==========================================
