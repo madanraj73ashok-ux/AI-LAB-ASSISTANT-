@@ -1312,11 +1312,23 @@ async function loadComponentsView() {
     }
 
     if (!d.components || d.components.length === 0) {
-        grid.innerHTML = bannerHtml + `<p style="color: var(--text-muted); grid-column: 1/-1;">No hardware components required for this practical.</p>`;
+        grid.innerHTML = bannerHtml + `
+            <div style="grid-column: 1/-1; text-align: center; padding: 2.5rem 1rem; background: var(--bg-card); border-radius: 12px; border: 1px dashed var(--border-light);">
+                <div style="font-size: 2rem; margin-bottom: 0.5rem; opacity: 0.7;">📦</div>
+                <h4 style="color: var(--text-white); margin-bottom: 0.25rem;">No components extracted yet</h4>
+                <p style="color: var(--text-muted); font-size: 0.85rem; max-width: 400px; margin: 0 auto;">
+                    Hardware apparatus has not yet been processed for this experiment, or practical is entirely software-based.
+                </p>
+            </div>
+        `;
         return;
     }
 
-    grid.innerHTML = bannerHtml + d.components.map(c => `
+    grid.innerHTML = bannerHtml + d.components.map(c => {
+        const hasSpec = c.specifications && c.specifications.trim() && c.specifications !== 'Lab manual standard apparatus';
+        const hasSafety = c.safetyPrecautions && c.safetyPrecautions.trim();
+
+        return `
         <div class="comp-card">
             <div>
                 <div class="comp-card-top">
@@ -1328,16 +1340,19 @@ async function loadComponentsView() {
                     <div>Stock: <strong style="color: #10b981;">${c.availableQuantity}</strong></div>
                     <div>Rack: <strong>${escapeHtml(c.storageLocation)}</strong></div>
                 </div>
+                ${hasSpec ? `
                 <div class="comp-spec-box">
                     <strong>Specifications:</strong> ${escapeHtml(c.specifications)}
-                </div>
+                </div>` : ''}
             </div>
+            ${hasSafety ? `
             <div class="comp-safety-box">
                 <span>⚠️</span>
                 <span><strong>Safety Precautions:</strong> ${escapeHtml(c.safetyPrecautions)}</span>
-            </div>
+            </div>` : ''}
         </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 // ==========================================

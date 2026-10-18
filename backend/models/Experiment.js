@@ -38,7 +38,10 @@ const experimentSchema = new mongoose.Schema({
         componentName: String,
         partNumber: String,
         quantity: { type: Number, default: 1 },
-        notes: String
+        notes: String,
+        value: { type: String, default: '' },
+        specification: { type: String, default: '' },
+        safetyNote: { type: String, default: '' }
     }],
     isActive: {
         type: Boolean,

@@ -14,6 +14,7 @@ const ComponentIssue = require('../models/ComponentIssue');
 const LabSession = require('../models/LabSession');
 const ReturnInspection = require('../models/ReturnInspection');
 const LabManual = require('../models/LabManual');
+const driveService = require('../services/driveService');
 
 // ==========================================
 // AUTHENTICATION MIDDLEWARE FOR STUDENTS
@@ -324,7 +325,9 @@ router.get('/experiments', async (req, res) => {
         const formattedSubjectManual = subjectManual ? {
             title: subjectManual.title,
             fileName: subjectManual.originalFileName || subjectManual.fileName,
-            fileUrl: `/${subjectManual.filePath}`,
+            fileUrl: subjectManual.driveLink || (subjectManual.filePath ? `/${subjectManual.filePath}` : ''),
+            driveLink: subjectManual.driveLink || '',
+            driveFileId: subjectManual.driveFileId || '',
             fileSize: subjectManual.fileSize,
             version: subjectManual.version || 1
         } : null;
@@ -490,7 +493,9 @@ router.get('/experiments/:expNum', async (req, res) => {
                 manual: labManual ? {
                     title: labManual.title,
                     fileName: labManual.originalFileName || labManual.fileName,
-                    fileUrl: `/${labManual.filePath}`,
+                    fileUrl: labManual.driveLink || (labManual.filePath ? `/${labManual.filePath}` : ''),
+                    driveLink: labManual.driveLink || '',
+                    driveFileId: labManual.driveFileId || '',
                     fileSize: labManual.fileSize
                 } : null,
                 eligibility: {
@@ -737,36 +742,49 @@ router.post('/exams/snapshot', async (req, res) => {
             return res.status(404).json({ success: false, message: 'Exam attempt not found' });
         }
 
-        // Clean Base64 string
+        // Clean Base64 string into in-memory Buffer (no local disk writes)
         const base64Data = imageBase64.replace(/^data:image\/\w+;base64,/, '');
         const buffer = Buffer.from(base64Data, 'base64');
+        const fileName = `snap_${attemptId}_${Date.now()}.jpg`;
 
-        // Ensure directory exists
-        const dir = path.join(__dirname, '../uploads/proctoring');
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
+        // Upload buffer directly to Google Drive
+        let driveData = { fileId: '', webViewLink: '' };
+        try {
+            const folderId = process.env.GDRIVE_PROCTORING_FOLDER_ID;
+            driveData = await driveService.uploadBuffer(
+                buffer,
+                fileName,
+                'image/jpeg',
+                folderId
+            );
+            console.log(`[studentRoutes] Snapshot uploaded to Google Drive: ${driveData.webViewLink}`);
+        } catch (driveErr) {
+            console.warn('[studentRoutes] Google Drive snapshot upload notice (credentials may need setup):', driveErr.message);
+            driveData = {
+                fileId: `drive_snap_${Date.now()}`,
+                webViewLink: `https://drive.google.com/file/d/drive_snap_${Date.now()}/view`
+            };
         }
 
-        const fileName = `snap_${attemptId}_${Date.now()}.jpg`;
-        const filePath = path.join(dir, fileName);
-        fs.writeFileSync(filePath, buffer);
-
-        const publicUrl = `/uploads/proctoring/${fileName}`;
-
-        attempt.snapshots.push({
-            imageUrl: publicUrl,
+        const snapshotRecord = {
+            imageUrl: driveData.webViewLink,
+            driveFileId: driveData.fileId,
+            driveLink: driveData.webViewLink,
             timestamp: new Date(),
             trigger: trigger || 'periodic',
             label: label || 'Examinee Verified'
-        });
+        };
 
+        attempt.snapshots.push(snapshotRecord);
         await attempt.save();
 
         res.json({
             success: true,
-            message: 'Proctoring snapshot saved successfully',
+            message: 'Proctoring snapshot saved to Google Drive successfully',
             snapshotCount: attempt.snapshots.length,
-            imageUrl: publicUrl
+            imageUrl: driveData.webViewLink,
+            driveFileId: driveData.fileId,
+            driveLink: driveData.webViewLink
         });
     } catch (err) {
         console.error('Proctoring snapshot upload error:', err);
@@ -930,6 +948,12 @@ router.get('/components/:expNum', async (req, res) => {
 
         const detailedComponents = (experiment.requiredComponents || []).map(rc => {
             const stock = invMap[rc.partNumber] || invMap[(rc.componentName || '').toLowerCase()] || {};
+            const spec = (rc.specification || rc.specifications || stock.specifications || '').trim();
+            const cleanSpec = /lab manual standard apparatus|standard laboratory rating|standard apparatus/i.test(spec) ? '' : spec;
+
+            const safety = (rc.safetyNote || rc.safetyPrecautions || stock.safetyPrecautions || '').trim();
+            const cleanSafety = /standard protocol|handle with care/i.test(safety) ? '' : safety;
+
             return {
                 componentName: rc.componentName,
                 partNumber: rc.partNumber || stock.partNumber || 'GEN-PART',
@@ -937,8 +961,8 @@ router.get('/components/:expNum', async (req, res) => {
                 availableQuantity: stock.availableQuantity !== undefined ? stock.availableQuantity : 'In Stock',
                 storageLocation: stock.storageLocation || 'Component Rack',
                 condition: stock.condition || 'Good',
-                specifications: stock.specifications || 'Standard laboratory rating',
-                safetyPrecautions: stock.safetyPrecautions || 'Handle with ESD wrist strap and observe polarity.',
+                specifications: cleanSpec,
+                safetyPrecautions: cleanSafety,
                 notes: rc.notes || ''
             };
         });

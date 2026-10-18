@@ -41,6 +41,36 @@ const userSchema = new mongoose.Schema({
         type: Boolean,
         default: true
     },
+    registrationId: {
+        type: String,
+        trim: true,
+        default: ''
+    },
+    registerNumber: {
+        type: String,
+        trim: true,
+        default: ''
+    },
+    year: {
+        type: String,
+        default: '3rd Year'
+    },
+    section: {
+        type: String,
+        default: 'Section A'
+    },
+    department: {
+        type: String,
+        default: 'ECE'
+    },
+    batch: {
+        type: String,
+        default: '2023-2027'
+    },
+    semester: {
+        type: String,
+        default: 'Semester V'
+    },
     createdAt: {
         type: Date,
         default: Date.now

@@ -38,6 +38,42 @@
     margin: 0;
     padding: 0;
     box-sizing: border-box;
+    -webkit-user-select: none;
+    -moz-user-select: none;
+    -ms-user-select: none;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+/* Prevent text selection highlight boxes */
+::selection {
+    background: transparent;
+    color: inherit;
+}
+
+::-moz-selection {
+    background: transparent;
+    color: inherit;
+}
+
+/* Allow text editing strictly in editable inputs */
+input, textarea {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+}
+
+input::selection, textarea::selection {
+    background: rgba(133, 85, 232, 0.35);
+    color: #ffffff;
+}
+
+img {
+    -webkit-user-drag: none;
+    user-drag: none;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 body {

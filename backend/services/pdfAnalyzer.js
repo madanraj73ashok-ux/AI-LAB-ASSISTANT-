@@ -1,6 +1,15 @@
 const fs = require('fs');
 const path = require('path');
+const mongoose = require('mongoose');
 const { PDFParse } = require('pdf-parse');
+
+let GoogleGenAI;
+try {
+    const genaiMod = require('@google/genai');
+    GoogleGenAI = genaiMod.GoogleGenAI;
+} catch (e) {
+    GoogleGenAI = null;
+}
 
 // Models
 const Experiment = require('../models/Experiment');
@@ -838,7 +847,7 @@ const ROBOTICS_EXPERIMENTS = [
  * Intelligent PDF Parser & Analyzer
  * Uses PDFParse to extract text from laboratory guides and builds experiment records, apparatus inventory, and question sets.
  */
-async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubject = '', diskFilePath = '') {
+async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubject = '', diskFilePath = '', driveLink = '', driveFileId = '') {
     const engineUsed = 'pdf-parse';
     let rawText = '';
     if (!rawText) {
@@ -865,7 +874,6 @@ async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubje
     const combinedContent = cleanName + ' ' + cleanText;
 
     // Detect Subject & Lab Name
-    // Check if user provided an explicit valid subject (not generic strings like 'lab manual' or 'lab mannual')
     let userProvidedSubject = (customSubject || '')
         .replace(/\.pdf$/i, '')
         .replace(/^(introduction to|study of|lab manual for|lab manual on|manual for)\s+/i, '')
@@ -899,7 +907,6 @@ async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubje
             detectedSubject = 'Data Structures & Algorithms';
             detectedLab = 'Data Structures Laboratory';
         } else {
-            // Extract from filename: strip 'lab manual', 'manual', '.pdf', underscores
             let nameBased = (originalFileName || '')
                 .replace(/\.pdf$/i, '')
                 .replace(/[-_]/g, ' ')
@@ -919,7 +926,7 @@ async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubje
     let extractedExperiments = [];
     if (rawText && rawText.length > 150) {
         try {
-            extractedExperiments = extractExperimentsFromRawText(rawText, detectedSubject, detectedLab);
+            extractedExperiments = await extractExperimentsFromRawText(rawText, detectedSubject, detectedLab);
         } catch (parseErr) {
             console.warn('Dynamic text parsing note:', parseErr.message);
         }
@@ -941,7 +948,7 @@ async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubje
             description: item.description,
             objectives: item.objectives,
             instructions: item.instructions,
-            requiredComponents: item.components,
+            requiredComponents: (item.components || []).map(c => sanitizeAndValidateComponent(c)).filter(Boolean),
             questions: item.questions
         }));
     } else if (subLower.includes('analog') || subLower.includes('circuit') || subLower.includes('adc') || subLower.includes('digital electronics')) {
@@ -953,11 +960,10 @@ async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubje
             description: item.description,
             objectives: item.objectives,
             instructions: item.instructions,
-            requiredComponents: item.components,
+            requiredComponents: (item.components || []).map(c => sanitizeAndValidateComponent(c)).filter(Boolean),
             questions: item.questions
         }));
     } else {
-        // Fallback: If domain was identified as Robotics from filename
         if (cleanName.includes('robot')) {
             finalExperiments = ROBOTICS_EXPERIMENTS.map(item => ({
                 experimentNumber: `EXP-${item.num < 10 ? '0' + item.num : item.num}`,
@@ -967,11 +973,10 @@ async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubje
                 description: item.description,
                 objectives: item.objectives,
                 instructions: item.instructions,
-                requiredComponents: item.components,
+                requiredComponents: (item.components || []).map(c => sanitizeAndValidateComponent(c)).filter(Boolean),
                 questions: item.questions
             }));
         } else {
-            // General engineering lab experiments
             finalExperiments = ADC_CIRCUITS_EXPERIMENTS.map(item => ({
                 experimentNumber: `EXP-${item.num < 10 ? '0' + item.num : item.num}`,
                 title: item.title,
@@ -980,7 +985,7 @@ async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubje
                 description: item.description,
                 objectives: item.objectives,
                 instructions: item.instructions,
-                requiredComponents: item.components,
+                requiredComponents: (item.components || []).map(c => sanitizeAndValidateComponent(c)).filter(Boolean),
                 questions: item.questions
             }));
         }
@@ -992,18 +997,266 @@ async function parseAndAnalyzeLabManual(pdfBuffer, originalFileName, customSubje
         manualTitle: `${detectedSubject} Official Laboratory Manual`,
         rawTextLength: rawText.length,
         engine: engineUsed,
+        driveLink: driveLink || '',
+        driveFileId: driveFileId || '',
         experiments: finalExperiments
     };
 }
 
 /**
- * Helper to dynamically parse experiment blocks from raw PDF text
+ * Normalizes electronic/hardware units to standard symbols.
  */
-function extractExperimentsFromRawText(rawText, subject, lab) {
+function normalizeUnit(str) {
+    if (!str || typeof str !== 'string') return '';
+    return str
+        .replace(/\b(kohm|k\s*ohm|k\s*ohms|k\s*Ω)\b/gi, 'kΩ')
+        .replace(/\b(mohm|m\s*ohm|m\s*ohms|m\s*Ω)\b/gi, 'MΩ')
+        .replace(/\b(ohm|ohms)\b/gi, 'Ω')
+        .replace(/\b(micro\s*farad|microfarad|uf|uF|μf)\b/g, 'µF')
+        .replace(/\b(pf|pF|picofarad)\b/g, 'pF')
+        .replace(/\b(nf|nF|nanofarad)\b/g, 'nF');
+}
+
+/**
+ * Server-side validator for physical components before persisting.
+ * Drops items ending with ":", containing words like "Required", "Equipments", "Apparatus List",
+ * under 3 chars, numeric-only, or case-insensitive duplicates.
+ * Normalizes units (Ω, kΩ, µF) and defaults quantity to 1.
+ * SERVER-SIDE VALIDATION: Drops items ending with ":", containing banned words,
+ * under 3 chars, numeric-only, fragments like "159Ω 1" or "01µF 1", or duplicates.
+ * Normalizes units (Ω, kΩ, µF) and defaults quantity to 1.
+ * NEVER inserts a generic "Lab manual standard apparatus" spec.
+ */
+function sanitizeAndValidateComponent(comp, seenNames = new Set()) {
+    if (!comp || typeof comp !== 'object') return null;
+
+    let rawName = (comp.name || comp.componentName || '').trim();
+    if (!rawName) return null;
+
+    // Drop any item whose name ends with ":"
+    if (rawName.endsWith(':')) return null;
+
+    // Drop items containing banned words
+    const bannedPattern = /\b(required|equipments|apparatus\s*list|apparatus\s*required|s\.?\s*no|sl\.?\s*no|components\s*required|equipment\s*required|page\s*\d+)\b/i;
+    if (bannedPattern.test(rawName)) return null;
+
+    // Drop if only numbers + unit or fragment before stripping (e.g. "159Ω 1", "01µF 1", "01μF 1", "159Ω")
+    if (/^\d+[\d\s.)\-•*#:]*(?:kΩ|Ω|MΩ|µF|uF|μF|pF|nF|v|V|A|mA)?\s*\d*$/i.test(rawName)) return null;
+
+    // Remove leading bullets or numbering
+    rawName = rawName.replace(/^[\d\s.)\-•*#:]+/, '').trim();
+
+    // Strip trailing dashes and digits (e.g. "- 1", "- 2")
+    rawName = rawName.replace(/\s*-\s*\d+$/, '').trim();
+
+    // Drop if under 3 characters
+    if (rawName.length < 3) return null;
+
+    // Drop if numeric-only (e.g. "159", "01")
+    if (/^\d+$/.test(rawName)) return null;
+
+    // Drop if only standalone unit/symbol with optional count (e.g. "Ω 1", "µF 1", "μF 1", "kΩ")
+    if (/^(?:Ω|kΩ|MΩ|µF|uF|μF|pF|nF|v|V|A|mA|nos?|no\b)\s*\d*$/i.test(rawName)) return null;
+
+    // Drop if starting with unit without a physical component noun
+    if (/^(?:Ω|kΩ|MΩ|µF|uF|μF|pF|nF)\b/i.test(rawName) && !/(?:resistor|capacitor|diode|transistor|inductor|ic|source|supply|generator|meter)/i.test(rawName)) return null;
+
+    // Normalize units
+    let normalizedName = normalizeUnit(rawName);
+
+    // Drop duplicates (case-insensitive)
+    const lowerName = normalizedName.toLowerCase();
+    if (seenNames.has(lowerName)) return null;
+    seenNames.add(lowerName);
+
+    let value = normalizeUnit((comp.value || '').trim());
+
+    // Quantity defaults to 1
+    let quantity = parseInt(comp.quantity, 10);
+    if (isNaN(quantity) || quantity <= 0) quantity = 1;
+
+    // Do NOT insert generic "Lab manual standard apparatus"
+    let spec = (comp.specification || comp.specifications || comp.notes || '').trim();
+    if (/lab manual standard apparatus|standard laboratory rating|standard apparatus/i.test(spec)) {
+        spec = '';
+    }
+
+    // Safety note - only if genuine
+    let safety = (comp.safetyNote || comp.safetyPrecautions || '').trim();
+    if (/standard protocol|handle with care/i.test(safety) && !/laser|polarity|high\s*voltage|heat|short|discharge/i.test(normalizedName + ' ' + safety)) {
+        safety = '';
+    }
+
+    if (!safety) {
+        if (/electrolytic/i.test(normalizedName)) {
+            safety = 'Observe strict capacitor polarity (+/-) to prevent breakdown.';
+        } else if (/laser/i.test(normalizedName)) {
+            safety = 'Avoid direct eye exposure to laser emission path.';
+        } else if (/lipo|battery/i.test(normalizedName)) {
+            safety = 'Do not short-circuit battery terminals or over-discharge.';
+        }
+    }
+
+    const partNum = comp.partNumber || `PRT-${Math.abs(hashString(normalizedName)).toString().slice(0, 5)}`;
+
+    return {
+        componentName: normalizedName,
+        name: normalizedName,
+        value: value,
+        quantity: quantity,
+        specification: spec,
+        specifications: spec,
+        safetyNote: safety,
+        safetyPrecautions: safety,
+        partNumber: partNum,
+        notes: spec || ''
+    };
+}
+
+/**
+ * AI-powered component extractor using strict JSON schema with Gemini.
+ * Instructs AI to include ONLY real physical components, merge split fragments,
+ * and exclude headings, table headers, and page artifacts.
+ */
+async function extractComponentsWithAI(experimentSectionText, subject, expTitle) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (apiKey && apiKey.trim() && GoogleGenAI) {
+        try {
+            const ai = new GoogleGenAI({ apiKey: apiKey.trim() });
+            const prompt = `You are an expert electronics and robotics laboratory assistant.
+Analyze this laboratory manual experiment section:
+Subject: "${subject}"
+Experiment: "${expTitle}"
+
+Section text:
+"""
+${experimentSectionText}
+"""
+
+TASK: Extract only the real physical components, apparatus, hardware, tools, and bench equipment required for this experiment.
+
+STRICT INSTRUCTIONS:
+1. ONLY include real physical components or equipment (e.g. "Resistor 1.5 kΩ", "Capacitor 0.1 µF", "Op-Amp IC 741", "Breadboard", "Dual Power Supply (+/- 15V)", "DSO").
+2. Merge split fragments across line wraps or column breaks (e.g. if "Resistors" is followed by "1.5 kΩ 1" or "159Ω 1", produce complete items like name: "Resistor 1.5 kΩ", value: "1.5 kΩ", quantity: 1).
+3. EXCLUDE section headings, table headers, column titles, and page artifacts (e.g. "and Equipments Required:", "Apparatus List:", "S.No", "Sl.No", "Components Required", "Page 1").
+4. Normalize units using standard symbols: Ω, kΩ, MΩ, µF, pF, nF, V, mA.
+5. Quantity defaults to 1 if not specified.
+6. Do NOT insert generic strings like "Lab manual standard apparatus". If no specific rating or specification is mentioned in the text, leave specification as an empty string ("").
+7. Provide a safetyNote ONLY if this specific component genuinely requires one (e.g. capacitor polarity, laser precautions, high voltage, LiPo battery handling). Otherwise leave empty ("").`;
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: prompt,
+                config: {
+                    responseMimeType: 'application/json',
+                    responseSchema: {
+                        type: 'OBJECT',
+                        properties: {
+                            components: {
+                                type: 'ARRAY',
+                                items: {
+                                    type: 'OBJECT',
+                                    properties: {
+                                        name: { type: 'STRING' },
+                                        value: { type: 'STRING' },
+                                        quantity: { type: 'INTEGER' },
+                                        specification: { type: 'STRING' },
+                                        safetyNote: { type: 'STRING' }
+                                    },
+                                    required: ['name']
+                                }
+                            }
+                        },
+                        required: ['components']
+                    }
+                }
+            });
+
+            if (response && response.text) {
+                const parsed = JSON.parse(response.text);
+                if (Array.isArray(parsed.components) && parsed.components.length > 0) {
+                    const seen = new Set();
+                    const valid = parsed.components
+                        .map(c => sanitizeAndValidateComponent(c, seen))
+                        .filter(Boolean);
+                    if (valid.length > 0) return valid;
+                }
+            }
+        } catch (err) {
+            console.warn('[pdfAnalyzer] Gemini AI component extraction notice:', err.message || err);
+        }
+    }
+
+    // Fallback: Deterministic intelligent heuristic extraction
+    return extractComponentsHeuristic(experimentSectionText, subject, expTitle);
+}
+
+/**
+ * Intelligent deterministic heuristic extraction when AI key is unavailable.
+ */
+function extractComponentsHeuristic(sectionText, subject, expTitle) {
+    if (!sectionText) return [];
+
+    const appMatch = sectionText.match(/(?:APPARATUS|COMPONENTS|EQUIPMENT|HARDWARE)\s*(?:REQUIRED)?\s*[:.-]?\s*([\s\S]*?)(?=(?:THEORY|DESCRIPTION|PRINCIPLE|PROCEDURE|INSTRUCTIONS|FORMULA|DIAGRAM|CIRCUIT\s*DIAGRAM|OBSERVATION|$))/i);
+    if (!appMatch || !appMatch[1]) return [];
+
+    const rawBlock = appMatch[1].trim();
+    const rawLines = rawBlock.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    const candidateItems = [];
+
+    let currentCategory = '';
+    for (let i = 0; i < rawLines.length && candidateItems.length < 15; i++) {
+        let line = rawLines[i].replace(/^[\d\s.)\-•*#:]+/, '').trim();
+        if (!line || line.endsWith(':') || line.length < 3) continue;
+
+        if (/^(s\.?no|sl\.?no|name|apparatus|qty|quantity|range|specifications?|type|required|equipments?|components?)\b/i.test(line)) {
+            continue;
+        }
+
+        // Check if line is just a value/rating like "159Ω 1" or "0.1µF 1" or "1k 2"
+        const isFragmentOnly = /^(\d+(\.\d+)?\s*(?:kΩ|Ω|MΩ|µF|pF|nF|k|uF|m|v|V)?)\s+(\d+)?$/i.test(line);
+        if (isFragmentOnly && currentCategory) {
+            candidateItems.push({
+                name: `${currentCategory} ${line.replace(/\s+\d+$/, '')}`.trim(),
+                value: line.replace(/\s+\d+$/, '').trim(),
+                quantity: parseInt(line.match(/\d+$/)?.[0] || '1', 10),
+                specification: '',
+                safetyNote: ''
+            });
+            continue;
+        }
+
+        if (/^(resistors?|capacitors?|inductors?|diodes?)$/i.test(line)) {
+            currentCategory = line.replace(/s$/i, '');
+            continue;
+        }
+
+        const cleanName = line.replace(/\s*-\s*\d+\s*(?:nos|no|units?)?/i, '').replace(/\(\d+\)/, '').trim();
+        const qtyMatch = line.match(/(?:[-:]|\b)\s*(\d+)\s*(?:nos|no|units?)?$/i);
+        const qty = qtyMatch ? parseInt(qtyMatch[1], 10) : 1;
+
+        candidateItems.push({
+            name: cleanName,
+            value: '',
+            quantity: qty,
+            specification: '',
+            safetyNote: ''
+        });
+    }
+
+    const seen = new Set();
+    return candidateItems
+        .map(c => sanitizeAndValidateComponent(c, seen))
+        .filter(Boolean);
+}
+
+/**
+ * Dynamic parser for experiment blocks from raw PDF text with AI component extraction.
+ */
+async function extractExperimentsFromRawText(rawText, subject, lab) {
     const experiments = [];
-    // Match experiment headers: '# Experiment 1', 'EXPERIMENT NO. 1', 'EXPT 1', 'EX.NO: 1', 'CYCLE 1'
     const expRegex = /(?:#+\s*)?(?:EXPERIMENT\s*(?:NO\.?|NUMBER)?\s*[:.-]?\s*(\d{1,2})|EXPT\.?\s*(\d{1,2})|EX\.?\s*NO\.?\s*[:.-]?\s*(\d{1,2})|CYCLE\s*(\d{1,2}))([^\n\r]*)/gi;
-    
+
     let match;
     const indices = [];
     while ((match = expRegex.exec(rawText)) !== null) {
@@ -1020,25 +1273,20 @@ function extractExperimentsFromRawText(rawText, subject, lab) {
         const current = indices[i];
         const next = indices[i + 1];
         const block = next ? rawText.substring(current.index, next.index) : rawText.substring(current.index, current.index + 3000);
-        
-        // Extract title
+
         let title = current.headerRest;
         if (!title || title.length < 5) {
             const lines = block.split('\n').map(l => l.trim()).filter(l => l.length > 0);
             if (lines.length > 1) {
-                // Title is usually the line right after experiment marker
                 title = lines[1].replace(/^(TITLE|NAME OF THE EXPERIMENT|AIM)\s*[:.-]?\s*/i, '').trim();
             }
         }
         if (!title || title.length < 3) {
             title = `Experiment ${current.num} Study & Practical Verification`;
         }
-
-        // Clean title
         title = title.replace(/^[:.\-\s]+/, '').replace(/[\r\n]+/g, ' ').trim();
         if (title.length > 120) title = title.substring(0, 117) + '...';
 
-        // Extract Aim
         let aim = '';
         const aimMatch = block.match(/(?:AIM|OBJECTIVE)\s*[:.-]?\s*([\s\S]*?)(?=(?:APPARATUS|COMPONENTS|THEORY|PROCEDURE|EQUIPMENT|FORMULA|DIAGRAM|$))/i);
         if (aimMatch && aimMatch[1]) {
@@ -1048,7 +1296,6 @@ function extractExperimentsFromRawText(rawText, subject, lab) {
             aim = `To study, assemble, and analyze ${title} according to standard laboratory protocol.`;
         }
 
-        // Extract Description / Theory
         let description = '';
         const theoryMatch = block.match(/(?:THEORY|DESCRIPTION|PRINCIPLE)\s*[:.-]?\s*([\s\S]*?)(?=(?:APPARATUS|COMPONENTS|PROCEDURE|INSTRUCTIONS|OBSERVATION|$))/i);
         if (theoryMatch && theoryMatch[1]) {
@@ -1058,7 +1305,6 @@ function extractExperimentsFromRawText(rawText, subject, lab) {
             description = `Practical laboratory exploration of fundamental principles and operational verification of ${title}.`;
         }
 
-        // Extract Instructions / Procedure
         let instructions = '';
         const procMatch = block.match(/(?:PROCEDURE|INSTRUCTIONS|ALGORITHM|EXPERIMENTAL STEPS)\s*[:.-]?\s*([\s\S]*?)(?=(?:OBSERVATION|RESULT|TABULATION|VIVA|QUESTIONS|$))/i);
         if (procMatch && procMatch[1]) {
@@ -1068,33 +1314,9 @@ function extractExperimentsFromRawText(rawText, subject, lab) {
             instructions = '1. Verify all component connections and power rail polarities. 2. Apply input signal and calibrate zero reference. 3. Record experimental readings and verify against theoretical model.';
         }
 
-        // Extract Components / Apparatus
-        const components = [];
-        const appMatch = block.match(/(?:APPARATUS|COMPONENTS|EQUIPMENT|HARDWARE)\s*(?:REQUIRED)?\s*[:.-]?\s*([\s\S]*?)(?=(?:THEORY|PROCEDURE|INSTRUCTIONS|FORMULA|DIAGRAM|$))/i);
-        if (appMatch && appMatch[1]) {
-            const rawAppLines = appMatch[1].split(/\n|\r|,|;/).map(l => l.trim()).filter(l => l.length > 2 && !/^(s\.?no|name|apparatus|qty|quantity|range)/i.test(l));
-            for (const itemLine of rawAppLines.slice(0, 6)) {
-                // Parse name and quantity (e.g. 'Resistor 10k - 2 Nos', 'Op-amp IC 741 (1)')
-                const cleanItem = itemLine.replace(/^\d+[\s.)-]+/, '').trim();
-                if (cleanItem.length > 2) {
-                    components.push({
-                        componentName: cleanItem.substring(0, 60),
-                        partNumber: `PRT-${Math.abs(hashString(cleanItem)).toString().slice(0, 5)}`,
-                        quantity: 1,
-                        notes: 'Lab manual standard apparatus'
-                    });
-                }
-            }
-        }
-        if (components.length === 0) {
-            components.push(
-                { componentName: `${subject} Trainer Board`, partNumber: 'EQP-TRN-MAIN', quantity: 1, notes: 'Main experimental module' },
-                { componentName: 'Regulated DC Power Supply', partNumber: 'EQP-RPS-REG', quantity: 1, notes: 'System power' },
-                { componentName: 'Test Probes & Jumper Leads Set', partNumber: 'ACC-LEADS-SET', quantity: 1, notes: 'Bench interconnection' }
-            );
-        }
+        // Extract components using AI or strict heuristic
+        const components = await extractComponentsWithAI(block, subject, title);
 
-        // Pre-Lab Technical Questions (Always 4 structured options)
         const questions = [
             {
                 questionText: `What is the fundamental engineering objective of ${title}?`,
@@ -1168,6 +1390,277 @@ function hashString(str) {
     return Math.abs(hash);
 }
 
+/**
+ * Clean up historic garbage components in MongoDB (e.g. from prior runs).
+ */
+async function cleanupJunkComponentsInDatabase() {
+    try {
+        const junkRegex = /(:$|and equipments required|159Ω|01μf|01µf|apparatus list|^Ω\b|^µF\b|^μF\b|^\d+$)/i;
+        await Component.deleteMany({
+            $or: [
+                { name: junkRegex },
+                { specifications: 'Lab manual standard apparatus' },
+                { name: { $regex: /^.{1,2}$/ } }
+            ]
+        });
+
+        // Also clean up experiment documents
+        const exps = await Experiment.find();
+        for (const exp of exps) {
+            if (Array.isArray(exp.requiredComponents)) {
+                const seen = new Set();
+                const cleaned = exp.requiredComponents
+                    .map(c => sanitizeAndValidateComponent(c, seen))
+                    .filter(Boolean);
+                if (cleaned.length !== exp.requiredComponents.length) {
+                    exp.requiredComponents = cleaned;
+                    await exp.save();
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[pdfAnalyzer] Component cleanup notice:', e.message);
+    }
+}
+
+/**
+ * Saves AI-analyzed manual data into staff-side collections:
+ * labmanuals, experiments, components (inventory), questionsets.
+ */
+async function saveAnalysisToStaffCollections({
+    analysis,
+    fileName,
+    originalFileName,
+    fileSize = 0,
+    mimeType = 'application/pdf',
+    filePath = '',
+    driveFileId = '',
+    driveLink = '',
+    staffUser = 'staff_admin',
+    targetYear = 'All',
+    targetSection = 'All',
+    targetDepartment = 'ECE',
+    assignedStudentsCount = 0
+}) {
+    // 1. Save or Update LabManual
+    let manualDoc = await LabManual.findOne({ fileName: fileName });
+    if (!manualDoc && driveFileId) {
+        manualDoc = await LabManual.findOne({ driveFileId: driveFileId });
+    }
+
+    if (!manualDoc) {
+        manualDoc = new LabManual({
+            subject: analysis.subject,
+            experimentNumber: 'EXP-01',
+            title: analysis.manualTitle,
+            fileName: fileName,
+            originalFileName: originalFileName || fileName,
+            fileSize: fileSize,
+            mimeType: mimeType || 'application/pdf',
+            filePath: filePath || '',
+            driveFileId: driveFileId || '',
+            driveLink: driveLink || '',
+            targetYear: targetYear || 'All',
+            targetSection: targetSection || 'All',
+            targetDepartment: targetDepartment || 'ECE',
+            assignedStudentsCount: assignedStudentsCount || 0,
+            isPublished: true,
+            updatedBy: staffUser,
+            version: 1
+        });
+    } else {
+        manualDoc.subject = analysis.subject;
+        manualDoc.title = analysis.manualTitle;
+        if (fileSize) manualDoc.fileSize = fileSize;
+        if (filePath) manualDoc.filePath = filePath;
+        if (driveFileId) manualDoc.driveFileId = driveFileId;
+        if (driveLink) manualDoc.driveLink = driveLink;
+        if (targetYear) manualDoc.targetYear = targetYear;
+        if (targetSection) manualDoc.targetSection = targetSection;
+        if (targetDepartment) manualDoc.targetDepartment = targetDepartment;
+        if (assignedStudentsCount) manualDoc.assignedStudentsCount = assignedStudentsCount;
+        manualDoc.isPublished = true;
+        manualDoc.updatedBy = staffUser;
+    }
+    await manualDoc.save();
+
+    // 2. Save all Experiments in Database using atomic upsert
+    for (const expData of analysis.experiments) {
+        await Experiment.findOneAndUpdate(
+            { experimentNumber: expData.experimentNumber, subject: expData.subject },
+            {
+                $set: {
+                    title: expData.title,
+                    subject: expData.subject,
+                    laboratory: expData.laboratory,
+                    description: expData.description,
+                    objectives: expData.objectives,
+                    instructions: expData.instructions,
+                    requiredComponents: expData.requiredComponents || [],
+                    isActive: true,
+                    createdBy: staffUser
+                }
+            },
+            { upsert: true, new: true }
+        );
+
+        // 3. Save Components to Inventory
+        if (expData.requiredComponents && expData.requiredComponents.length > 0) {
+            for (const comp of expData.requiredComponents) {
+                try {
+                    const existingComp = await Component.findOne({
+                        $or: [
+                            { partNumber: comp.partNumber },
+                            { name: comp.componentName }
+                        ]
+                    });
+                    if (!existingComp) {
+                        await Component.create({
+                            name: comp.componentName,
+                            type: 'Hardware Apparatus',
+                            partNumber: comp.partNumber,
+                            totalQuantity: 30,
+                            availableQuantity: 25,
+                            minimumStockLevel: 5,
+                            storageLocation: 'Lab Cabinet - Rack A',
+                            condition: 'Good',
+                            specifications: comp.specification || '',
+                            safetyPrecautions: comp.safetyNote || 'Operate within rated laboratory voltage limits.',
+                            history: [{
+                                action: `Stocked from ${analysis.subject} Manual`,
+                                quantityChange: 30,
+                                staff: staffUser,
+                                remarks: `Configured for ${expData.experimentNumber}`
+                            }]
+                        });
+                    } else {
+                        if (!existingComp.specifications && comp.specification) {
+                            existingComp.specifications = comp.specification;
+                            await existingComp.save();
+                        }
+                    }
+                } catch (compErr) {
+                    console.warn('[pdfAnalyzer] Component sync note:', compErr.message);
+                }
+            }
+        }
+
+        // 4. Save QuestionSets to Question Bank
+        if (expData.questions && expData.questions.length) {
+            await QuestionSet.findOneAndUpdate(
+                { experimentNumber: expData.experimentNumber, subject: expData.subject },
+                {
+                    $set: {
+                        subject: expData.subject,
+                        title: `${expData.title} Pre-Lab Assessment`,
+                        testDurationMinutes: 5,
+                        passMark: 3,
+                        isPublished: true,
+                        createdBy: staffUser,
+                        questions: expData.questions
+                    }
+                },
+                { upsert: true, new: true }
+            );
+        }
+    }
+
+    // Clean up any historical junk components in database
+    await cleanupJunkComponentsInDatabase();
+
+    await AuditLog.create({
+        action: 'Sync Lab Manual to Database',
+        category: 'Manuals',
+        staffUsername: staffUser,
+        details: `Saved "${fileName}" (${driveLink ? 'Google Drive' : 'Local'}) -> Extracted ${analysis.experiments.length} experiments for "${analysis.subject}"`,
+        timestamp: new Date()
+    });
+
+    return {
+        success: true,
+        manual: manualDoc,
+        experimentsCount: analysis.experiments.length
+    };
+}
+
+/**
+ * Re-analyzes manual and refreshes an experiment's components cleanly.
+ */
+async function reanalyzeExperimentComponents(expIdOrNum, staffUser = 'staff_admin') {
+    let exp;
+    if (mongoose.Types.ObjectId.isValid(expIdOrNum)) {
+        exp = await Experiment.findById(expIdOrNum);
+    }
+    if (!exp) {
+        exp = await Experiment.findOne({ experimentNumber: expIdOrNum });
+    }
+    if (!exp) {
+        throw new Error(`Experiment "${expIdOrNum}" not found in database.`);
+    }
+
+    // Find linked manual
+    let manual = await LabManual.findOne({ experimentNumber: exp.experimentNumber });
+    if (!manual) {
+        manual = await LabManual.findOne({ subject: exp.subject });
+    }
+
+    let rawText = '';
+    if (manual && manual.filePath) {
+        const fullPath = path.join(__dirname, '..', manual.filePath);
+        if (fs.existsSync(fullPath)) {
+            const buffer = fs.readFileSync(fullPath);
+            const parser = new PDFParse({ data: buffer });
+            const res = await parser.getText().catch(() => null);
+            rawText = res?.text || '';
+        }
+    }
+
+    // Re-extract components with AI
+    let newComponents = [];
+    if (rawText && rawText.length > 50) {
+        const numOnly = exp.experimentNumber.replace(/[^0-9]/g, '');
+        const expRegex = new RegExp(`(?:EXPERIMENT|EXPT|EX\\.NO)[:.-]?\\s*${numOnly}([\\s\\S]*?)(?=(?:EXPERIMENT|EXPT|EX\\.NO|$))`, 'i');
+        const match = rawText.match(expRegex);
+        const section = match ? match[0] : rawText;
+        newComponents = await extractComponentsWithAI(section, exp.subject, exp.title);
+    }
+
+    // If still empty or no manual text, use curated curriculum
+    if (!newComponents || newComponents.length === 0) {
+        const subLower = (exp.subject || '').toLowerCase();
+        const num = parseInt(exp.experimentNumber.replace(/[^0-9]/g, ''), 10) || 1;
+        if (subLower.includes('robot')) {
+            const found = ROBOTICS_EXPERIMENTS.find(e => e.num === num) || ROBOTICS_EXPERIMENTS[0];
+            const seen = new Set();
+            newComponents = (found.components || []).map(c => sanitizeAndValidateComponent(c, seen)).filter(Boolean);
+        } else {
+            const found = ADC_CIRCUITS_EXPERIMENTS.find(e => e.num === num) || ADC_CIRCUITS_EXPERIMENTS[0];
+            const seen = new Set();
+            newComponents = (found.components || []).map(c => sanitizeAndValidateComponent(c, seen)).filter(Boolean);
+        }
+    }
+
+    // Update experiment
+    exp.requiredComponents = newComponents;
+    await exp.save();
+
+    // Clean up junk components in database
+    await cleanupJunkComponentsInDatabase();
+
+    await AuditLog.create({
+        action: 'Re-analyse Experiment Components',
+        category: 'Experiments',
+        staffUsername: staffUser,
+        details: `Re-analysed manual for ${exp.experimentNumber}: refreshed ${newComponents.length} components`,
+        timestamp: new Date()
+    });
+
+    return {
+        success: true,
+        experiment: exp,
+        components: newComponents
+    };
+}
 
 /**
  * Auto-Syncs any local PDF manual present on disk in `uploads/manuals/` into MongoDB.
@@ -1176,8 +1669,7 @@ async function syncLocalManualsToDatabase() {
     try {
         const manualsDir = path.join(__dirname, '..', 'uploads', 'manuals');
         if (!fs.existsSync(manualsDir)) {
-            fs.mkdirSync(manualsDir, { recursive: true });
-            return { success: true, synced: 0, message: 'Uploads directory created.' };
+            return { success: true, synced: 0, message: 'Google Drive is active storage. No local directory required.' };
         }
 
         const files = fs.readdirSync(manualsDir).filter(f => f.toLowerCase().endsWith('.pdf'));
@@ -1193,114 +1685,18 @@ async function syncLocalManualsToDatabase() {
             const stats = fs.statSync(filePathOnDisk);
             const pdfBuffer = fs.readFileSync(filePathOnDisk);
 
-            // Run analysis with PDF parser (auto-detect subject from filename and content)
             const analysis = await parseAndAnalyzeLabManual(pdfBuffer, fileName, '', filePathOnDisk);
-
-            // 1. Save or Update LabManual
-            let manualDoc = await LabManual.findOne({ fileName: fileName });
-            if (!manualDoc) {
-                manualDoc = new LabManual({
-                    subject: analysis.subject,
-                    experimentNumber: 'EXP-01',
-                    title: analysis.manualTitle,
-                    fileName: fileName,
-                    originalFileName: fileName,
-                    fileSize: stats.size,
-                    mimeType: 'application/pdf',
-                    filePath: `uploads/manuals/${fileName}`,
-                    isPublished: true,
-                    updatedBy: staffUser,
-                    version: 1
-                });
-            } else {
-                manualDoc.subject = analysis.subject;
-                manualDoc.title = analysis.manualTitle;
-                manualDoc.fileSize = stats.size;
-                manualDoc.filePath = `uploads/manuals/${fileName}`;
-                manualDoc.isPublished = true;
-                manualDoc.updatedBy = staffUser;
-            }
-            await manualDoc.save();
-
-            // 2. Save all Experiments in Database using atomic upsert
-            for (const expData of analysis.experiments) {
-                await Experiment.findOneAndUpdate(
-                    { experimentNumber: expData.experimentNumber, subject: expData.subject },
-                    {
-                        $set: {
-                            title: expData.title,
-                            subject: expData.subject,
-                            laboratory: expData.laboratory,
-                            description: expData.description,
-                            objectives: expData.objectives,
-                            instructions: expData.instructions,
-                            requiredComponents: expData.requiredComponents,
-                            isActive: true,
-                            createdBy: staffUser
-                        }
-                    },
-                    { upsert: true, new: true }
-                );
-
-                // 3. Save Components to Inventory
-                if (expData.requiredComponents) {
-                    for (const comp of expData.requiredComponents) {
-                        try {
-                            const existingComp = await Component.findOne({
-                                $or: [
-                                    { partNumber: comp.partNumber },
-                                    { name: comp.componentName }
-                                ]
-                            });
-                            if (!existingComp) {
-                                await Component.create({
-                                    name: comp.componentName,
-                                    type: 'Hardware Apparatus',
-                                    partNumber: comp.partNumber,
-                                    totalQuantity: 30,
-                                    availableQuantity: 25,
-                                    minimumStockLevel: 5,
-                                    storageLocation: 'Lab Cabinet - Rack A',
-                                    condition: 'Good',
-                                    specifications: comp.notes || 'Lab manual standard apparatus',
-                                    safetyPrecautions: 'Verify DC rail polarities and operate within rated voltage.',
-                                    history: [{ action: `Stocked from ${analysis.subject} Manual`, quantityChange: 30, staff: staffUser, remarks: `Configured for ${expData.experimentNumber}` }]
-                                });
-                            }
-                        } catch (compErr) {
-                            console.warn('Component sync note:', compErr.message);
-                        }
-                    }
-                }
-
-                // 4. Save QuestionSets to Question Bank
-                if (expData.questions && expData.questions.length) {
-                    await QuestionSet.findOneAndUpdate(
-                        { experimentNumber: expData.experimentNumber, subject: expData.subject },
-                        {
-                            $set: {
-                                subject: expData.subject,
-                                title: `${expData.title} Pre-Lab Assessment`,
-                                testDurationMinutes: 5,
-                                passMark: 3,
-                                isPublished: true,
-                                createdBy: staffUser,
-                                questions: expData.questions
-                            }
-                        },
-                        { upsert: true, new: true }
-                    );
-                }
-            }
+            await saveAnalysisToStaffCollections({
+                analysis,
+                fileName,
+                originalFileName: fileName,
+                fileSize: stats.size,
+                mimeType: 'application/pdf',
+                filePath: `uploads/manuals/${fileName}`,
+                staffUser
+            });
 
             syncedCount++;
-            await AuditLog.create({
-                action: 'Sync Lab Manual to Database',
-                category: 'Manuals',
-                staffUsername: staffUser,
-                details: `Synced "${fileName}" -> Saved ${analysis.experiments.length} experiments to database for "${analysis.subject}"`,
-                timestamp: new Date()
-            });
         }
 
         return {
@@ -1317,6 +1713,12 @@ async function syncLocalManualsToDatabase() {
 module.exports = {
     parseAndAnalyzeLabManual,
     syncLocalManualsToDatabase,
+    saveAnalysisToStaffCollections,
+    reanalyzeExperimentComponents,
+    sanitizeAndValidateComponent,
+    extractComponentsWithAI,
+    cleanupJunkComponentsInDatabase,
     ADC_CIRCUITS_EXPERIMENTS,
     ROBOTICS_EXPERIMENTS
 };
+
